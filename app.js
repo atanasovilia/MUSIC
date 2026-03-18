@@ -958,22 +958,6 @@ function renderNowPlaying() {
   const btn = document.getElementById('jamPlayPauseBtn');
   if (btn) btn.textContent = isPaused ? '⏯ Resume' : '⏯ Pause';
 
-  if (trackChanged && !isPaused) {
-    // Set up autoplay timer when a new track starts playing
-    if (autoPlayTimeoutId) clearTimeout(autoPlayTimeoutId);
-    const duration = np.durationMs || DEFAULT_TRACK_MS;
-    const trackId = np.id;
-    const elapsedSoFar = Date.now() - (np.startedAt || Date.now());
-    const remainingMs = Math.max(0, duration - elapsedSoFar);
-    autoPlayTimeoutId = setTimeout(() => {
-      const updated = getState();
-      if (updated.nowPlaying && updated.nowPlaying.id === trackId && !updated.nowPlaying.isPaused && updated.queue.length > 0) {
-        playTopSong();
-        showToast('▶ Next track playing');
-      }
-    }, remainingMs);
-  }
-
   if (isPaused) {
     // Clear autoplay timer when paused
     if (autoPlayTimeoutId) clearTimeout(autoPlayTimeoutId);
