@@ -61,7 +61,16 @@ const REFRESH_KEY = 'lofi_refresh_token';
 const VERIFIER_KEY= 'lofi_pkce_verifier';
 const SESSION_KEY = 'lofi_session';
 const DEMO_KEY    = 'lofi_demo_mode';
+const THEME_KEY   = 'lofi_scene_theme_v1';
 const PROD_SPOTIFY_REDIRECT_URI = 'https://musicdistro.vercel.app';
+
+const SCENE_THEMES = [
+  { id: 'city',  emoji: '🌃', label: 'City' },
+  { id: 'beach', emoji: '🌊', label: 'Beach' },
+  { id: 'rain',  emoji: '🌧️', label: 'Rain' },
+  { id: 'cafe',  emoji: '☕', label: 'Cafe' },
+  { id: 'night', emoji: '🌙', label: 'Night' },
+];
 
 // Cross-tab sync
 let bc;
@@ -82,6 +91,43 @@ function saveState(state) {
   localStorage.setItem(STATE_KEY, JSON.stringify(state));
   if (bc) bc.postMessage({ type:'state', state });
   renderAll();
+}
+
+function renderSceneStrip() {
+  const strip = document.getElementById('sceneStrip');
+  if (!strip) return;
+  strip.innerHTML = SCENE_THEMES.map(theme => (
+    `<button class="scene-chip" data-scene="${theme.id}" onclick="setSceneTheme('${theme.id}')">${theme.emoji} ${theme.label}</button>`
+  )).join('');
+}
+
+function setSceneTheme(themeId, persist = true) {
+  const valid = SCENE_THEMES.some(t => t.id === themeId);
+  const chosen = valid ? themeId : 'city';
+
+  document.body.classList.remove('scene-city', 'scene-beach', 'scene-rain', 'scene-cafe', 'scene-night');
+  document.body.classList.add(`scene-${chosen}`);
+
+  document.querySelectorAll('.scene-chip').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.scene === chosen);
+  });
+
+  if (persist) localStorage.setItem(THEME_KEY, chosen);
+}
+
+function updateNowMini(track) {
+  const mini = document.getElementById('nowMini');
+  const text = document.getElementById('nowMiniText');
+  if (!mini || !text) return;
+
+  if (!track) {
+    mini.classList.remove('visible');
+    text.textContent = 'Nothing playing';
+    return;
+  }
+
+  mini.classList.add('visible');
+  text.textContent = `${track.name} • ${track.artist}`;
 }
 
 // ============================================================
@@ -258,11 +304,13 @@ function renderNowPlaying() {
   const wrap = document.getElementById('nowPlayingWrap');
   const np = state.nowPlaying;
   if (!np) {
+    updateNowMini(null);
     wrap.innerHTML = `<div class="no-playing">
       <div class="no-playing-icon">🎵</div>
       <p>Nothing playing yet.<br><strong>Vote for a song</strong> or add one to the queue!</p>
     </div>`;
   } else {
+    updateNowMini(np);
     // Use Spotify iframe embed (works without auth, auto-plays preview or full for premium)
     wrap.innerHTML = `<iframe
       src="https://open.spotify.com/embed/track/${np.id}?utm_source=generator&theme=0"
@@ -502,6 +550,30 @@ function closeSearch() {
   document.getElementById('searchOverlay').classList.add('hidden');
 }
 
+function bindKeyboardShortcuts() {
+  document.addEventListener('keydown', (event) => {
+    const tag = (event.target && event.target.tagName) ? event.target.tagName.toLowerCase() : '';
+    const inField = tag === 'input' || tag === 'textarea';
+
+    if (event.key === 'Escape') {
+      closeSearch();
+      return;
+    }
+
+    if (inField) return;
+
+    if (event.key === '/') {
+      event.preventDefault();
+      openSearch();
+      return;
+    }
+
+    if (event.key.toLowerCase() === 'p') {
+      playTopSong();
+    }
+  });
+}
+
 function handleSpotifyBadgeClick() {
   const token = localStorage.getItem(TOKEN_KEY);
   const demo  = localStorage.getItem(DEMO_KEY) === '1';
@@ -558,6 +630,10 @@ function esc2(s) { return String(s).replace(/'/g,"\\'").replace(/"/g,'\\"').repl
 //  INIT
 // ============================================================
 (async function init() {
+  renderSceneStrip();
+  setSceneTheme(localStorage.getItem(THEME_KEY) || 'city', false);
+  bindKeyboardShortcuts();
+
   const params = new URLSearchParams(window.location.search);
   const code   = params.get('code');
   const error  = params.get('error');
