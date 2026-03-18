@@ -129,6 +129,11 @@
         <button class="transport-btn" id="jamPlayPauseBtn" onclick="jamTogglePlayPause()">⏯ Pause</button>
         <button class="transport-btn" onclick="jamNextTrack()">⏭ Next</button>
       </div>
+      <div class="spotify-volume-row">
+        <span class="spotify-volume-label">Spotify Vol</span>
+        <input id="spotifyVolumeRange" type="range" min="0" max="100" value="70" oninput="setSpotifyVolumeFromUI(this.value)">
+        <span class="spotify-volume-value" id="spotifyVolumeValue">70%</span>
+      </div>
       <button class="play-top-btn" id="playTopBtn" onclick="playTopSong()" disabled>
         <span>▶</span> PLAY TOP VOTED
       </button>
@@ -280,5 +285,6 @@
 
 <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
 <script src="app.js"></script>
+<script src="https://open.spotify.com/embed/iframe-api/v1" async></script>
 </body>
 </html>

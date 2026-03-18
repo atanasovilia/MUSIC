@@ -367,6 +367,34 @@ header {
   color: var(--text);
 }
 
+.spotify-volume-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 8px;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: rgba(255,255,255,0.03);
+  padding: 8px 10px;
+}
+
+.spotify-volume-label {
+  font-size: 11px;
+  color: var(--text-sub);
+  white-space: nowrap;
+}
+
+.spotify-volume-value {
+  font-size: 11px;
+  color: var(--text-dim);
+  min-width: 34px;
+  text-align: right;
+}
+
+#spotifyVolumeRange {
+  width: 100%;
+}
+
 /* ===== VOTING PANEL ===== */
 .voting-panel {
   display: flex; flex-direction: column; gap: 14px;
@@ -1152,6 +1180,14 @@ header {
 
   .mixes-row {
     grid-template-columns: 1fr;
+  }
+
+  .spotify-volume-row {
+    grid-template-columns: 1fr;
+  }
+
+  .spotify-volume-value {
+    text-align: left;
   }
 
   .master-volume-controls {

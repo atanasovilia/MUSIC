@@ -66,6 +66,7 @@ const SUGGESTIONS_KEY = 'lofi_shared_suggestions_v1';
 const AMBIENT_PREFS_KEY = 'lofi_ambient_prefs_v1';
 const MASTER_VOLUME_KEY = 'lofi_master_volume_v1';
 const MASTER_MUTED_KEY = 'lofi_master_muted_v1';
+const SPOTIFY_VOLUME_KEY = 'lofi_spotify_volume_v1';
 const AUTO_AUTH_KEY = 'lofi_auto_auth_once_v1';
 const PROD_SPOTIFY_REDIRECT_URI = 'https://musicdistro.vercel.app';
 const DEFAULT_TRACK_MS = 180000;
@@ -125,6 +126,17 @@ let jamLastTs = 0;
 let playlistMixCache = [];
 let masterVolume = 0.28;
 let masterMuted = false;
+let spotifyVolume = 0.7;
+let spotifyIframeApi = null;
+let spotifyController = null;
+let spotifyPlayback = {
+  position: 0,
+  duration: 0,
+  isPaused: true,
+  updatedAt: 0,
+  trackUri: '',
+};
+let spotifyEndedAt = 0;
 
 let djState = {
   enabled: false,
@@ -177,6 +189,11 @@ const DJ_LIBRARY = {
 // Cross-tab sync
 let bc;
 try { bc = new BroadcastChannel('lofi_together'); } catch(e) {}
+
+window.onSpotifyIframeApiReady = (IFrameAPI) => {
+  spotifyIframeApi = IFrameAPI;
+  renderAll();
+};
 
 function getSessionId() {
   let id = sessionStorage.getItem(SESSION_KEY);
@@ -329,6 +346,116 @@ function toggleAmbientMute() {
   updateMasterVolumeUI();
   resumeAmbient();
   applyMasterVolume(0.08);
+}
+
+function loadSpotifyVolumeState() {
+  const saved = parseFloat(localStorage.getItem(SPOTIFY_VOLUME_KEY) || '0.7');
+  spotifyVolume = Number.isFinite(saved) ? Math.max(0, Math.min(1, saved)) : 0.7;
+}
+
+function updateSpotifyVolumeUI() {
+  const range = document.getElementById('spotifyVolumeRange');
+  const value = document.getElementById('spotifyVolumeValue');
+  const pct = Math.round(spotifyVolume * 100);
+  if (range) range.value = String(pct);
+  if (value) value.textContent = `${pct}%`;
+}
+
+function applySpotifyVolume() {
+  if (!spotifyController || typeof spotifyController.setVolume !== 'function') return;
+  try {
+    spotifyController.setVolume(spotifyVolume);
+  } catch {}
+}
+
+function setSpotifyVolumeFromUI(value) {
+  spotifyVolume = Math.max(0, Math.min(1, Number(value) / 100));
+  localStorage.setItem(SPOTIFY_VOLUME_KEY, String(spotifyVolume));
+  updateSpotifyVolumeUI();
+  applySpotifyVolume();
+}
+
+function destroySpotifyController() {
+  if (!spotifyController) return;
+  try { spotifyController.destroy(); } catch {}
+  spotifyController = null;
+  spotifyPlayback = {
+    position: 0,
+    duration: 0,
+    isPaused: true,
+    updatedAt: 0,
+    trackUri: '',
+  };
+}
+
+function onSpotifyPlaybackUpdate(event) {
+  const data = event?.data || event || {};
+  const pos = Number(data.position);
+  const dur = Number(data.duration);
+  const paused = !!data.isPaused;
+  const trackUri = data.track?.uri || data.uri || '';
+
+  if (Number.isFinite(pos)) spotifyPlayback.position = pos;
+  if (Number.isFinite(dur) && dur > 0) spotifyPlayback.duration = dur;
+  spotifyPlayback.isPaused = paused;
+  spotifyPlayback.updatedAt = Date.now();
+  if (trackUri) spotifyPlayback.trackUri = trackUri;
+
+  const state = getState();
+  const np = state.nowPlaying;
+  if (!np) return;
+
+  const expectedUri = `spotify:track:${np.id}`;
+  const sameTrack = !trackUri || trackUri === expectedUri;
+  const durationMs = spotifyPlayback.duration || np.durationMs || DEFAULT_TRACK_MS;
+  const nearEnd = spotifyPlayback.position >= Math.max(0, durationMs - 1200);
+
+  if (sameTrack && paused && nearEnd) {
+    spotifyEndedAt = Date.now();
+  } else if (!paused) {
+    spotifyEndedAt = 0;
+  }
+}
+
+function mountSpotifyTrackEmbed(trackId, startSeconds = 0) {
+  const wrap = document.getElementById('nowPlayingWrap');
+  if (!wrap) return false;
+
+  const host = document.createElement('div');
+  host.id = 'spotifyEmbedHost';
+  wrap.replaceChildren(host);
+
+  if (!spotifyIframeApi || typeof spotifyIframeApi.createController !== 'function') {
+    return false;
+  }
+
+  destroySpotifyController();
+
+  spotifyIframeApi.createController(host, {
+    uri: `spotify:track:${trackId}`,
+    width: '100%',
+    height: 152,
+    theme: 'black',
+  }, (controller) => {
+    spotifyController = controller;
+    spotifyEndedAt = 0;
+
+    if (controller.addListener) {
+      controller.addListener('playback_update', onSpotifyPlaybackUpdate);
+    }
+
+    applySpotifyVolume();
+
+    if (startSeconds > 0 && typeof controller.seek === 'function') {
+      try { controller.seek(startSeconds * 1000); } catch {}
+    }
+
+    if (typeof controller.play === 'function') {
+      try { controller.play(); } catch {}
+    }
+  });
+
+  return true;
 }
 
 function getCurrentTheme() {
@@ -823,6 +950,7 @@ function playTopSong() {
     isPaused: false,
     pausedAt: null,
   };
+  spotifyEndedAt = 0;
   state.queue = state.queue.filter(t => t.id !== top.id);
   saveState(state);
   showToast('Now playing: ' + top.name + ' ✨');
@@ -840,6 +968,8 @@ function renderAll() {
 function renderNowPlaying() {
   const state = getState();
   const wrap = document.getElementById('nowPlayingWrap');
+  if (!wrap) return;
+
   const np = state.nowPlaying;
   const currentRenderedId = wrap.dataset.trackId || '';
   const currentPaused = wrap.dataset.paused === '1';
@@ -850,6 +980,7 @@ function renderNowPlaying() {
       return;
     }
 
+    destroySpotifyController();
     wrap.dataset.trackId = 'none';
     wrap.dataset.paused = '0';
     updateNowMini(null);
@@ -859,30 +990,40 @@ function renderNowPlaying() {
       <div class="no-playing-icon">🎵</div>
       <p>Nothing playing yet.<br><strong>Vote for a song</strong> or add one to the queue!</p>
     </div>`;
-  } else {
-    const isPaused = !!np.isPaused;
-    if (currentRenderedId === np.id && currentPaused === isPaused && wrap.querySelector('iframe')) {
-      updateNowMini(np);
-      return;
-    }
+    return;
+  }
 
-    const elapsedSeconds = Math.max(0, Math.floor((Date.now() - (np.startedAt || Date.now())) / 1000));
-    const startSuffix = elapsedSeconds > 0 ? `&t=${elapsedSeconds}` : '';
-    wrap.dataset.trackId = np.id;
-    wrap.dataset.paused = isPaused ? '1' : '0';
+  const isPaused = !!np.isPaused;
+  const trackChanged = currentRenderedId !== np.id;
+  const pausedChanged = currentPaused !== isPaused;
+
+  if (!trackChanged && !pausedChanged) {
     updateNowMini(np);
-    const btn = document.getElementById('jamPlayPauseBtn');
-    if (btn) btn.textContent = isPaused ? '⏯ Resume' : '⏯ Pause';
+    applySpotifyVolume();
+    return;
+  }
 
-    if (isPaused) {
-      wrap.innerHTML = `<div class="no-playing">
-        <div class="no-playing-icon">⏸</div>
-        <p><strong>${esc(np.name)}</strong><br>Paused for everyone in the jam room</p>
-      </div>`;
-      return;
-    }
+  wrap.dataset.trackId = np.id;
+  wrap.dataset.paused = isPaused ? '1' : '0';
+  updateNowMini(np);
+  const btn = document.getElementById('jamPlayPauseBtn');
+  if (btn) btn.textContent = isPaused ? '⏯ Resume' : '⏯ Pause';
 
-    // Use Spotify iframe embed (works without auth, auto-plays preview or full for premium)
+  if (isPaused) {
+    destroySpotifyController();
+    wrap.innerHTML = `<div class="no-playing">
+      <div class="no-playing-icon">⏸</div>
+      <p><strong>${esc(np.name)}</strong><br>Paused for everyone in the jam room</p>
+    </div>`;
+    return;
+  }
+
+  const elapsedSeconds = Math.max(0, Math.floor((Date.now() - (np.startedAt || Date.now())) / 1000));
+  const mounted = mountSpotifyTrackEmbed(np.id, elapsedSeconds);
+
+  if (!mounted) {
+    // Fallback if iframe API is not ready yet.
+    const startSuffix = elapsedSeconds > 0 ? `&t=${elapsedSeconds}` : '';
     wrap.innerHTML = `<iframe
       src="https://open.spotify.com/embed/track/${np.id}?utm_source=generator&theme=0${startSuffix}"
       width="100%" height="152"
@@ -1044,14 +1185,22 @@ function maybeAutoAdvanceJam() {
   if (!np) return;
   if (np.isPaused) return;
 
+  const hasQueuedNext = state.queue.length > 0;
+  if (!hasQueuedNext) return;
+
+  // Primary signal: Spotify embed reports paused near the end.
+  const endedByEmbed = spotifyEndedAt > 0 && (Date.now() - spotifyEndedAt) < 4500;
+
+  // Fallback signal: local timer elapsed full track duration.
   const startedAt = np.startedAt || 0;
   const duration = np.durationMs || DEFAULT_TRACK_MS;
   const elapsed = Date.now() - startedAt;
+  const endedByTimer = elapsed >= duration + 1200;
 
-  if (elapsed < duration + 1200) return;
-  if (!state.queue.length) return;
+  if (!endedByEmbed && !endedByTimer) return;
 
   autoAdvanceLock = true;
+  spotifyEndedAt = 0;
   playTopSong();
   showToast('Jam keeps rolling ▶ next track');
   setTimeout(() => { autoAdvanceLock = false; }, 800);
@@ -1081,6 +1230,7 @@ function jamTogglePlayPause() {
     showToast('Paused for everyone ⏸');
   }
   saveState(state);
+  if (!applyingRemoteSync) broadcastJamSync();
 }
 
 function jamRestartTrack() {
@@ -1090,6 +1240,7 @@ function jamRestartTrack() {
   state.nowPlaying.pausedAt = null;
   state.nowPlaying.isPaused = false;
   saveState(state);
+  if (!applyingRemoteSync) broadcastJamSync();
   showToast('Track restarted for everyone');
 }
 
@@ -1100,6 +1251,8 @@ function jamNextTrack() {
     return;
   }
   playTopSong();
+  if (!applyingRemoteSync) broadcastJamSync();
+  showToast('Skipped to next track for everyone ⏭');
 }
 
 function getSuggestions() {
@@ -1411,6 +1564,11 @@ function applySharedClientId(sharedClientId, notify = false) {
   return changed;
 }
 
+function getJamParticipantCount() {
+  const openConns = jamConnections.filter(c => c && c.open).length;
+  return openConns + 1; // +1 for self (host)
+}
+
 function updateJamOverlayFields() {
   const code = jamRoomCode || sanitizeRoomCode(new URLSearchParams(window.location.search).get('room')) || '';
   const codeInput = document.getElementById('jamCodeInput');
@@ -1419,8 +1577,15 @@ function updateJamOverlayFields() {
   if (codeInput) codeInput.value = code;
   if (linkInput) linkInput.value = code ? roomShareUrl(code) : '';
   if (status) {
-    const peerOk = jamConnections.some(c => c && c.open);
-    status.textContent = code ? `${peerOk ? 'Connected' : 'Waiting'} in room ${code}` : 'Not connected';
+    if (!code) {
+      status.textContent = 'Not connected';
+    } else {
+      const peerOk = jamConnections.some(c => c && c.open);
+      const participants = getJamParticipantCount();
+      const connStatus = peerOk ? '🟢 Connected' : '🟡 Waiting';
+      const participantText = participants === 1 ? 'you' : `${participants} people`;
+      status.textContent = `${connStatus} in room ${code} • ${participantText}`;
+    }
   }
 }
 
@@ -1691,6 +1856,8 @@ function esc2(s) { return String(s).replace(/'/g,"\\'").replace(/"/g,'\\"').repl
 (async function init() {
   loadMasterAudioState();
   updateMasterVolumeUI();
+  loadSpotifyVolumeState();
+  updateSpotifyVolumeUI();
 
   loadDjState();
   updateDjControls();
