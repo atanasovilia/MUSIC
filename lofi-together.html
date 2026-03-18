@@ -184,19 +184,6 @@
       </div>
     </div>
 
-    <aside class="volume-panel">
-      <div class="panel-label">🔊 master volume</div>
-      <div class="volume-controls">
-        <button class="volume-btn" onclick="nudgeMasterVolume(-15)">−</button>
-        <div class="volume-display">
-          <input id="masterVolumeRange" type="range" min="0" max="100" value="28">
-          <span class="volume-value" id="masterVolumeValue">28%</span>
-        </div>
-        <button class="volume-btn" onclick="nudgeMasterVolume(15)">＋</button>
-      </div>
-      <button class="mute-btn" id="masterMuteBtn" onclick="toggleAmbientMute()">🔇 Mute</button>
-    </aside>
-
     <aside class="mixer-panel">
       <div class="panel-label">🎛 ambient mix</div>
       <div class="ambient-list" id="ambientList"></div>

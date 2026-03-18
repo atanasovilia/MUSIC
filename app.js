@@ -384,15 +384,9 @@ function updateSpotifyVolumeUI() {
 }
 
 function applySpotifyVolume(delayMs = 0) {
-  const doSet = () => {
-    if (!spotifyController) return;
-    const vol = masterMuted ? 0 : masterVolume; // 0.0 – 1.0
-    try {
-      if (typeof spotifyController.setVolume === 'function') spotifyController.setVolume(vol);
-    } catch {}
-  };
-  if (delayMs > 0) setTimeout(doSet, delayMs);
-  else doSet();
+  // Volume is handled natively by the Spotify embed's own controls.
+  // Do not override it programmatically so the user's in-player slider works.
+  return;
 }
 
 function onSpotifyPlaybackUpdate(event) {
@@ -432,7 +426,7 @@ function mountSpotifyTrackEmbed(trackId, startSeconds = 0) {
   spotifyIframeApi.createController(host, {
     uri: `spotify:track:${trackId}`,
     width: '100%',
-    height: 152,
+    height: 232,
     theme: 'black',
   }, (controller) => {
     spotifyController = controller;
@@ -1048,7 +1042,7 @@ function renderNowPlaying() {
     const startSuffix = elapsedSeconds > 0 ? `&t=${elapsedSeconds}` : '';
     wrap.innerHTML = `<iframe
       src="https://open.spotify.com/embed/track/${np.id}?utm_source=generator&theme=0${startSuffix}"
-      width="100%" height="152"
+      width="100%" height="232"
       allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
       loading="lazy">
     </iframe>`;

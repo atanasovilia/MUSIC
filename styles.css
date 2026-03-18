@@ -293,7 +293,7 @@ header {
 .main-grid {
   flex: 1; overflow: hidden;
   display: grid;
-  grid-template-columns: 320px 1fr 250px;
+  grid-template-columns: 320px 1fr 220px;
   gap: 20px;
   padding: 16px 28px 20px;
   align-items: start;
@@ -389,86 +389,6 @@ header {
 .transport-btn:hover {
   border-color: var(--border-glow);
   color: var(--text);
-}
-
-/* ===== VOLUME PANEL ===== */
-.volume-panel {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  border-radius: var(--r);
-  border: 1px solid var(--border);
-  background: var(--bg-card);
-  backdrop-filter: blur(14px);
-  padding: 12px;
-  min-width: 220px;
-}
-
-.volume-controls {
-  display: grid;
-  grid-template-columns: auto 1fr auto;
-  gap: 10px;
-  align-items: center;
-}
-
-.volume-btn {
-  border: 1px solid var(--border);
-  border-radius: 9px;
-  background: rgba(255,255,255,0.05);
-  color: var(--text-sub);
-  font-size: 16px;
-  padding: 8px 10px;
-  cursor: pointer;
-  min-width: 40px;
-  transition: all 0.2s;
-}
-
-.volume-btn:hover {
-  border-color: var(--border-glow);
-  color: var(--text);
-  background: rgba(255,255,255,0.08);
-}
-
-.volume-display {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.volume-display input[type="range"] {
-  width: 100%;
-  flex: 1;
-}
-
-.volume-value {
-  font-size: 11px;
-  color: var(--text-dim);
-  min-width: 32px;
-  text-align: right;
-  font-weight: 500;
-}
-
-.mute-btn {
-  width: 100%;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: rgba(255,255,255,0.05);
-  color: var(--text-sub);
-  font-size: 12px;
-  padding: 8px;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.mute-btn:hover {
-  border-color: var(--border-glow);
-  color: var(--text);
-}
-
-.mute-btn.active {
-  color: var(--amber);
-  border-color: color-mix(in srgb, var(--amber) 40%, transparent);
-  background: color-mix(in srgb, var(--amber) 12%, transparent);
 }
 
 /* ===== VOTING PANEL ===== */
@@ -814,40 +734,6 @@ header {
   max-height: calc(100vh - 230px);
 }
 
-.master-volume-controls {
-  display: grid;
-  grid-template-columns: auto 1fr auto auto;
-  gap: 8px;
-  align-items: center;
-}
-
-.master-vol-btn,
-.master-mute-btn {
-  border: 1px solid var(--border);
-  border-radius: 9px;
-  background: rgba(255,255,255,0.05);
-  color: var(--text-sub);
-  font-size: 12px;
-  padding: 7px 9px;
-  cursor: pointer;
-}
-
-.master-vol-btn:hover,
-.master-mute-btn:hover {
-  border-color: var(--border-glow);
-  color: var(--text);
-}
-
-.master-mute-btn.active {
-  color: var(--amber);
-  border-color: color-mix(in srgb, var(--amber) 40%, transparent);
-  background: color-mix(in srgb, var(--amber) 12%, transparent);
-}
-
-#masterVolumeRange {
-  width: 100%;
-}
-
 .ambient-list {
   display: flex;
   flex-direction: column;
@@ -904,7 +790,6 @@ header {
   border-color: var(--border-glow);
   color: var(--text);
 }
-
 
 .jam-modal-actions {
   display: grid;
@@ -1264,21 +1149,13 @@ header {
     grid-template-columns: 1fr;
   }
 
-  .spotify-volume-row {
-    grid-template-columns: 1fr;
-  }
+  
 
-  .spotify-volume-value {
-    text-align: left;
-  }
+  
 
-  .master-volume-controls {
-    grid-template-columns: auto 1fr auto;
-  }
+  
 
-  .master-mute-btn {
-    grid-column: 1 / -1;
-  }
+  
 
   .mixer-panel {
     max-height: none;
