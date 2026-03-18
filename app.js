@@ -62,7 +62,10 @@ const VERIFIER_KEY= 'lofi_pkce_verifier';
 const SESSION_KEY = 'lofi_session';
 const DEMO_KEY    = 'lofi_demo_mode';
 const THEME_KEY   = 'lofi_scene_theme_v1';
+const SUGGESTIONS_KEY = 'lofi_shared_suggestions_v1';
+const AMBIENT_PREFS_KEY = 'lofi_ambient_prefs_v1';
 const PROD_SPOTIFY_REDIRECT_URI = 'https://musicdistro.vercel.app';
+const DEFAULT_TRACK_MS = 180000;
 
 const SCENE_THEMES = [
   { id: 'city',  emoji: '🌃', label: 'City' },
@@ -71,6 +74,41 @@ const SCENE_THEMES = [
   { id: 'cafe',  emoji: '☕', label: 'Cafe' },
   { id: 'night', emoji: '🌙', label: 'Night' },
 ];
+
+const AMBIENT_SCENES = {
+  city: [
+    { id: 'traffic', icon: '🚗', label: 'Traffic', type: 'pink-low', on: true, vol: 0.45 },
+    { id: 'rain', icon: '🌧️', label: 'Neon Rain', type: 'white-band', on: false, vol: 0.3 },
+    { id: 'wind', icon: '💨', label: 'High Wind', type: 'pink-high', on: false, vol: 0.2 },
+  ],
+  beach: [
+    { id: 'waves', icon: '🌊', label: 'Waves', type: 'pink-low', on: true, vol: 0.5 },
+    { id: 'wind', icon: '💨', label: 'Sea Wind', type: 'pink-high', on: true, vol: 0.2 },
+    { id: 'foam', icon: '🫧', label: 'Foam Hiss', type: 'white-band', on: false, vol: 0.2 },
+  ],
+  rain: [
+    { id: 'rain', icon: '🌧️', label: 'Rain', type: 'white-band', on: true, vol: 0.5 },
+    { id: 'distant', icon: '🌩️', label: 'Distant Thunder', type: 'pink-low', on: false, vol: 0.25 },
+    { id: 'room', icon: '🏠', label: 'Room Tone', type: 'pink-high', on: true, vol: 0.15 },
+  ],
+  cafe: [
+    { id: 'room', icon: '☕', label: 'Cafe Room', type: 'pink-high', on: true, vol: 0.25 },
+    { id: 'steam', icon: '♨️', label: 'Steam', type: 'white-band', on: false, vol: 0.2 },
+    { id: 'street', icon: '🚕', label: 'Street', type: 'pink-low', on: false, vol: 0.2 },
+  ],
+  night: [
+    { id: 'nightwind', icon: '🌬️', label: 'Night Wind', type: 'pink-high', on: true, vol: 0.2 },
+    { id: 'hush', icon: '🦗', label: 'Night Hush', type: 'white-band', on: true, vol: 0.15 },
+    { id: 'fire', icon: '🔥', label: 'Campfire', type: 'pink-low', on: false, vol: 0.2 },
+  ],
+};
+
+const ambientEngine = {
+  ctx: null,
+  master: null,
+  channels: {},
+  ready: false,
+};
 
 // Cross-tab sync
 let bc;
@@ -93,6 +131,162 @@ function saveState(state) {
   renderAll();
 }
 
+function getAmbientPrefs() {
+  try { return JSON.parse(localStorage.getItem(AMBIENT_PREFS_KEY)) || {}; }
+  catch { return {}; }
+}
+
+function saveAmbientPrefs(prefs) {
+  localStorage.setItem(AMBIENT_PREFS_KEY, JSON.stringify(prefs));
+}
+
+function getCurrentTheme() {
+  const cl = Array.from(document.body.classList).find(c => c.startsWith('scene-'));
+  return cl ? cl.replace('scene-', '') : 'city';
+}
+
+function initAmbientEngine() {
+  if (ambientEngine.ready) return;
+  const Ctx = window.AudioContext || window.webkitAudioContext;
+  if (!Ctx) return;
+  ambientEngine.ctx = new Ctx();
+  ambientEngine.master = ambientEngine.ctx.createGain();
+  ambientEngine.master.gain.value = 0.7;
+  ambientEngine.master.connect(ambientEngine.ctx.destination);
+  ambientEngine.ready = true;
+}
+
+function resumeAmbient() {
+  initAmbientEngine();
+  if (ambientEngine.ctx && ambientEngine.ctx.state === 'suspended') ambientEngine.ctx.resume();
+}
+
+function noiseBuffer(seconds = 2) {
+  const n = ambientEngine.ctx.sampleRate * seconds;
+  const b = ambientEngine.ctx.createBuffer(1, n, ambientEngine.ctx.sampleRate);
+  const d = b.getChannelData(0);
+  for (let i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
+  return b;
+}
+
+function buildAmbientNode(type) {
+  const src = ambientEngine.ctx.createBufferSource();
+  src.buffer = noiseBuffer(3);
+  src.loop = true;
+
+  const f1 = ambientEngine.ctx.createBiquadFilter();
+  f1.type = 'lowpass';
+  f1.frequency.value = 600;
+
+  const f2 = ambientEngine.ctx.createBiquadFilter();
+  f2.type = 'highpass';
+  f2.frequency.value = 80;
+
+  if (type === 'white-band') {
+    f1.frequency.value = 3500;
+    f2.frequency.value = 600;
+  }
+  if (type === 'pink-high') {
+    f1.frequency.value = 1200;
+    f2.frequency.value = 240;
+  }
+
+  const gain = ambientEngine.ctx.createGain();
+  gain.gain.value = 0;
+
+  src.connect(f2);
+  f2.connect(f1);
+  f1.connect(gain);
+  gain.connect(ambientEngine.master);
+  src.start();
+  return { src, gain };
+}
+
+function ensureAmbientChannel(key, type) {
+  if (ambientEngine.channels[key]) return ambientEngine.channels[key];
+  ambientEngine.channels[key] = buildAmbientNode(type);
+  return ambientEngine.channels[key];
+}
+
+function setAmbient(key, type, on, vol) {
+  resumeAmbient();
+  const ch = ensureAmbientChannel(key, type);
+  ch.gain.gain.setTargetAtTime(on ? Math.max(0, Math.min(1, vol)) : 0, ambientEngine.ctx.currentTime, 0.2);
+}
+
+function renderAmbientMixer() {
+  const list = document.getElementById('ambientList');
+  if (!list) return;
+  const theme = getCurrentTheme();
+  const channels = AMBIENT_SCENES[theme] || AMBIENT_SCENES.city;
+  const prefs = getAmbientPrefs();
+
+  list.innerHTML = channels.map(ch => {
+    const key = `${theme}:${ch.id}`;
+    const p = prefs[key] || {};
+    const on = typeof p.on === 'boolean' ? p.on : ch.on;
+    const vol = typeof p.vol === 'number' ? p.vol : ch.vol;
+    return `<div class="ambient-channel">
+      <div class="ambient-head">
+        <span class="ambient-name"><span>${ch.icon}</span><span>${ch.label}</span></span>
+        <input type="checkbox" ${on ? 'checked' : ''} onchange="toggleAmbient('${key}','${ch.type}',this.checked, Number(document.getElementById('vol-${key}').value) / 100)">
+      </div>
+      <input id="vol-${key}" type="range" min="0" max="100" value="${Math.round(vol * 100)}" oninput="changeAmbientVol('${key}','${ch.type}',this.value)">
+    </div>`;
+  }).join('');
+
+  channels.forEach(ch => {
+    const key = `${theme}:${ch.id}`;
+    const p = prefs[key] || {};
+    setAmbient(key, ch.type, typeof p.on === 'boolean' ? p.on : ch.on, typeof p.vol === 'number' ? p.vol : ch.vol);
+  });
+}
+
+function toggleAmbient(key, type, on, vol) {
+  const prefs = getAmbientPrefs();
+  prefs[key] = { on, vol };
+  saveAmbientPrefs(prefs);
+  setAmbient(key, type, on, vol);
+}
+
+function changeAmbientVol(key, type, value) {
+  const prefs = getAmbientPrefs();
+  const vol = Number(value) / 100;
+  const on = prefs[key] ? !!prefs[key].on : true;
+  prefs[key] = { on, vol };
+  saveAmbientPrefs(prefs);
+  setAmbient(key, type, on, vol);
+}
+
+function ambientAllOn() {
+  const theme = getCurrentTheme();
+  const channels = AMBIENT_SCENES[theme] || [];
+  const prefs = getAmbientPrefs();
+  channels.forEach(ch => {
+    const key = `${theme}:${ch.id}`;
+    const volEl = document.getElementById(`vol-${key}`);
+    const vol = volEl ? Number(volEl.value) / 100 : ch.vol;
+    prefs[key] = { on: true, vol };
+    setAmbient(key, ch.type, true, vol);
+  });
+  saveAmbientPrefs(prefs);
+  renderAmbientMixer();
+}
+
+function ambientAllOff() {
+  const theme = getCurrentTheme();
+  const channels = AMBIENT_SCENES[theme] || [];
+  const prefs = getAmbientPrefs();
+  channels.forEach(ch => {
+    const key = `${theme}:${ch.id}`;
+    const vol = prefs[key]?.vol ?? ch.vol;
+    prefs[key] = { on: false, vol };
+    setAmbient(key, ch.type, false, vol);
+  });
+  saveAmbientPrefs(prefs);
+  renderAmbientMixer();
+}
+
 function renderSceneStrip() {
   const strip = document.getElementById('sceneStrip');
   if (!strip) return;
@@ -113,6 +307,7 @@ function setSceneTheme(themeId, persist = true) {
   });
 
   if (persist) localStorage.setItem(THEME_KEY, chosen);
+  renderAmbientMixer();
 }
 
 function updateNowMini(track) {
@@ -253,6 +448,7 @@ function addTrack(track) {
     name: track.name,
     artist: track.artists[0].name,
     image: track.album?.images?.[1]?.url || track.album?.images?.[0]?.url || '',
+    durationMs: track.duration_ms || track.durationMs || DEFAULT_TRACK_MS,
     votes: 0,
     voters: [],
     addedBy: sid,
@@ -285,7 +481,7 @@ function playTopSong() {
   if (!state.queue.length) return;
   state.queue.sort((a, b) => b.votes - a.votes);
   const top = state.queue[0];
-  state.nowPlaying = top;
+  state.nowPlaying = { ...top, startedAt: Date.now(), durationMs: top.durationMs || DEFAULT_TRACK_MS };
   state.queue = state.queue.filter(t => t.id !== top.id);
   saveState(state);
   showToast('Now playing: ' + top.name + ' ✨');
@@ -297,6 +493,8 @@ function playTopSong() {
 function renderAll() {
   renderNowPlaying();
   renderQueue();
+  renderPlayerBar();
+  renderSuggestions();
 }
 
 function renderNowPlaying() {
@@ -368,6 +566,137 @@ function renderQueue() {
       <div class="vote-bar" style="width:${barWidth}%"></div>
     </div>`;
   }).join('');
+}
+
+function formatMs(ms) {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  const m = Math.floor(total / 60);
+  const s = total % 60;
+  return `${m}:${String(s).padStart(2, '0')}`;
+}
+
+function renderPlayerBar() {
+  const state = getState();
+  const np = state.nowPlaying;
+  const artEl = document.getElementById('playerArt');
+  const nameEl = document.getElementById('playerTrackName');
+  const artistEl = document.getElementById('playerTrackArtist');
+  const curEl = document.getElementById('playerTimeCurrent');
+  const totalEl = document.getElementById('playerTimeTotal');
+  const fillEl = document.getElementById('playerProgressFill');
+
+  if (!np) {
+    artEl.innerHTML = '♪';
+    nameEl.textContent = 'No active track';
+    artistEl.textContent = 'Vote and play to start the room soundtrack';
+    curEl.textContent = '0:00';
+    totalEl.textContent = '0:00';
+    fillEl.style.width = '0%';
+    return;
+  }
+
+  artEl.innerHTML = np.image ? `<img src="${np.image}" alt="${esc(np.name)}">` : '🎵';
+  nameEl.textContent = np.name;
+  artistEl.textContent = np.artist;
+
+  const startedAt = np.startedAt || Date.now();
+  const duration = np.durationMs || DEFAULT_TRACK_MS;
+  const elapsed = Math.max(0, Math.min(duration, Date.now() - startedAt));
+  const pct = duration ? (elapsed / duration * 100) : 0;
+
+  curEl.textContent = formatMs(elapsed);
+  totalEl.textContent = formatMs(duration);
+  fillEl.style.width = `${pct}%`;
+}
+
+function scrubPlayer(event) {
+  const state = getState();
+  if (!state.nowPlaying) return;
+  const bar = document.getElementById('playerProgress');
+  const rect = bar.getBoundingClientRect();
+  const ratio = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width));
+  const duration = state.nowPlaying.durationMs || DEFAULT_TRACK_MS;
+  state.nowPlaying.startedAt = Date.now() - Math.floor(duration * ratio);
+  saveState(state);
+}
+
+function getSuggestions() {
+  try { return JSON.parse(localStorage.getItem(SUGGESTIONS_KEY)) || []; }
+  catch { return []; }
+}
+
+function saveSuggestions(items) {
+  localStorage.setItem(SUGGESTIONS_KEY, JSON.stringify(items));
+  if (bc) bc.postMessage({ type: 'suggestions', suggestions: items });
+}
+
+function renderSuggestions() {
+  const list = document.getElementById('suggestionsList');
+  if (!list) return;
+
+  const items = getSuggestions().sort((a, b) => {
+    if (b.votes !== a.votes) return b.votes - a.votes;
+    return b.createdAt - a.createdAt;
+  }).slice(0, 18);
+
+  if (!items.length) {
+    list.innerHTML = '<div class="suggestion-empty">No suggestions yet. Add one ✨</div>';
+    return;
+  }
+
+  const sid = getSessionId();
+  list.innerHTML = items.map(item => {
+    const voted = (item.voters || []).includes(sid);
+    return `<div class="suggestion-item">
+      <div class="suggestion-main">
+        <div class="suggestion-text">${esc(item.text)}</div>
+        <div class="suggestion-meta">${esc(item.by || 'Anonymous')}</div>
+      </div>
+      <button class="suggestion-vote" onclick="voteSuggestion('${item.id}')">${voted ? '💜' : '🤍'} ${item.votes || 0}</button>
+    </div>`;
+  }).join('');
+}
+
+function submitSuggestion(event) {
+  event.preventDefault();
+  const nameEl = document.getElementById('suggestName');
+  const textEl = document.getElementById('suggestText');
+  const text = textEl.value.trim();
+  const by = nameEl.value.trim();
+  if (!text) return;
+
+  const items = getSuggestions();
+  items.push({
+    id: Math.random().toString(36).slice(2, 10),
+    text,
+    by,
+    votes: 0,
+    voters: [],
+    createdAt: Date.now(),
+  });
+  saveSuggestions(items);
+  textEl.value = '';
+  showToast('Suggestion shared 💡');
+  renderSuggestions();
+}
+
+function voteSuggestion(id) {
+  const sid = getSessionId();
+  const items = getSuggestions();
+  const item = items.find(s => s.id === id);
+  if (!item) return;
+
+  item.voters = item.voters || [];
+  if (item.voters.includes(sid)) {
+    item.voters = item.voters.filter(v => v !== sid);
+    item.votes = Math.max(0, (item.votes || 0) - 1);
+  } else {
+    item.voters.push(sid);
+    item.votes = (item.votes || 0) + 1;
+  }
+
+  saveSuggestions(items);
+  renderSuggestions();
 }
 
 // ============================================================
@@ -483,7 +812,7 @@ function renderDemoResults(q) {
   const state = getState();
   const inQueue = state.queue.map(t => t.id);
   _searchCache = {};
-  filtered.forEach(t => { _searchCache[t.id] = { id:t.id, name:t.name, artists:[{name:t.artist}], album:{images:[]} }; });
+  filtered.forEach(t => { _searchCache[t.id] = { id:t.id, name:t.name, artists:[{name:t.artist}], album:{images:[]}, duration_ms: DEFAULT_TRACK_MS }; });
   if (!filtered.length) {
     resultsEl.innerHTML = '<div class="search-status">No demo tracks match your search</div>';
     return;
@@ -633,6 +962,8 @@ function esc2(s) { return String(s).replace(/'/g,"\\'").replace(/"/g,'\\"').repl
   renderSceneStrip();
   setSceneTheme(localStorage.getItem(THEME_KEY) || 'city', false);
   bindKeyboardShortcuts();
+  renderAmbientMixer();
+  renderSuggestions();
 
   const params = new URLSearchParams(window.location.search);
   const code   = params.get('code');
@@ -683,9 +1014,11 @@ function esc2(s) { return String(s).replace(/'/g,"\\'").replace(/"/g,'\\"').repl
   if (bc) {
     bc.onmessage = (e) => {
       if (e.data?.type === 'state') renderAll();
+      if (e.data?.type === 'suggestions') renderSuggestions();
     };
   }
 
+  setInterval(renderPlayerBar, 1000);
   // Poll for updates every 5s (fallback)
   setInterval(renderAll, 5000);
 })();

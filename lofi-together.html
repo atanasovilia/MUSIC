@@ -145,8 +145,50 @@
       <button class="suggest-btn" id="suggestBtn" onclick="openSearch()">
         <span>＋</span> Suggest a song
       </button>
+
+      <div class="suggestions-card">
+        <div class="panel-label">💡 shared suggestions</div>
+        <form class="suggest-form" onsubmit="submitSuggestion(event)">
+          <input id="suggestName" type="text" maxlength="32" placeholder="Your name (optional)" />
+          <input id="suggestText" type="text" maxlength="120" placeholder="Drop a track or artist idea" required />
+          <button type="submit">Send</button>
+        </form>
+        <div class="suggestions-list" id="suggestionsList"></div>
+      </div>
     </div>
+
+    <aside class="mixer-panel">
+      <div class="panel-label">🎛 ambient mix</div>
+      <div class="ambient-list" id="ambientList"></div>
+      <div class="ambient-actions">
+        <button onclick="ambientAllOff()">All Off</button>
+        <button onclick="ambientAllOn()">All On</button>
+      </div>
+    </aside>
   </div>
+
+  <footer class="player-bar" id="playerBar">
+    <div class="player-main">
+      <div class="player-art" id="playerArt">♪</div>
+      <div class="player-meta">
+        <div class="player-track-name" id="playerTrackName">No active track</div>
+        <div class="player-track-artist" id="playerTrackArtist">Vote and play to start the room soundtrack</div>
+      </div>
+    </div>
+
+    <div class="player-progress-wrap">
+      <span id="playerTimeCurrent">0:00</span>
+      <div class="player-progress" id="playerProgress" onclick="scrubPlayer(event)">
+        <div class="player-progress-fill" id="playerProgressFill"></div>
+      </div>
+      <span id="playerTimeTotal">0:00</span>
+    </div>
+
+    <div class="player-actions">
+      <button onclick="playTopSong()">Next Voted</button>
+      <button onclick="openSearch()">Suggest</button>
+    </div>
+  </footer>
 </div>
 
 <!-- Setup Overlay -->
