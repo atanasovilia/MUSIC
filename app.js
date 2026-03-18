@@ -733,7 +733,9 @@ function getRedirectUri() {
 
 async function initiateAuth() {
   const clientId = localStorage.getItem(CLIENT_KEY);
-  if (!clientId) { showSetup(); return; }
+  if (!clientId) { 
+    return; // Don't call showSetup here - let caller handle it
+  }
   const v = genVerifier();
   const c = await genChallenge(v);
   localStorage.setItem(VERIFIER_KEY, v);
@@ -1522,8 +1524,8 @@ function saveSetup() {
   const clientId = document.getElementById('clientIdInput').value.trim();
   if (!clientId || clientId.length < 20) { showToast('Please enter a valid Client ID'); return; }
   localStorage.setItem(CLIENT_KEY, clientId);
-  localStorage.removeItem(DEMO_KEY);
   hideSetup();
+  // Redirect to Spotify auth
   initiateAuth();
 }
 
@@ -1978,14 +1980,9 @@ function esc2(s) { return String(s).replace(/'/g,"\\'").replace(/"/g,'\\"').repl
       hideSetup();
       updateSpotifyBadge(false, true);
     } else if (clientId) {
-      if (sharedCid && sessionStorage.getItem(AUTO_AUTH_KEY) !== '1') {
-        sessionStorage.setItem(AUTO_AUTH_KEY, '1');
-        showToast('Connecting Spotify...');
-        await initiateAuth();
-        return;
-      }
-      // Has client ID but no token — re-auth
+      // Has client ID but no valid token — show setup to try again
       updateSpotifyBadge(false, false);
+      showSetup();
     } else {
       // First visit
       showSetup();
