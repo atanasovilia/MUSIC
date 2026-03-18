@@ -66,6 +66,7 @@ const SUGGESTIONS_KEY = 'lofi_shared_suggestions_v1';
 const AMBIENT_PREFS_KEY = 'lofi_ambient_prefs_v1';
 const MASTER_VOLUME_KEY = 'lofi_master_volume_v1';
 const MASTER_MUTED_KEY = 'lofi_master_muted_v1';
+const AUTO_AUTH_KEY = 'lofi_auto_auth_once_v1';
 const PROD_SPOTIFY_REDIRECT_URI = 'https://musicdistro.vercel.app';
 const DEFAULT_TRACK_MS = 180000;
 const MAX_QUEUE = 5;
@@ -783,6 +784,12 @@ function addTrack(track) {
     addedAt: Date.now(),
   });
   saveState(state);
+
+  // Auto-start instantly when the first song is queued and nothing is playing.
+  if (!state.nowPlaying && state.queue.length === 1) {
+    playTopSong();
+  }
+
   showToast('Song added to queue! 🎶');
   return true;
 }
@@ -1375,6 +1382,35 @@ function roomShareUrl(code) {
   return url.toString();
 }
 
+function applySharedClientId(sharedClientId, notify = false) {
+  const cid = (sharedClientId || '').trim();
+  if (!cid) return false;
+
+  const current = (localStorage.getItem(CLIENT_KEY) || '').trim();
+  const changed = current !== cid;
+
+  if (changed) {
+    // Enforce host app credentials for this jam and drop tokens tied to other apps.
+    localStorage.setItem(CLIENT_KEY, cid);
+    localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(REFRESH_KEY);
+    localStorage.removeItem(EXPIRY_KEY);
+  }
+
+  if (localStorage.getItem(DEMO_KEY) === '1') {
+    localStorage.removeItem(DEMO_KEY);
+    updateSpotifyBadge(false, false);
+  }
+
+  if (changed) {
+    sessionStorage.removeItem(AUTO_AUTH_KEY);
+    updateSpotifyBadge(false, false);
+    if (notify) showToast('Using host Spotify app for this jam');
+  }
+
+  return changed;
+}
+
 function updateJamOverlayFields() {
   const code = jamRoomCode || sanitizeRoomCode(new URLSearchParams(window.location.search).get('room')) || '';
   const codeInput = document.getElementById('jamCodeInput');
@@ -1447,9 +1483,7 @@ function applyJamPayload(payload) {
   try {
     if (payload.state) localStorage.setItem(STATE_KEY, JSON.stringify(payload.state));
     if (payload.suggestions) localStorage.setItem(SUGGESTIONS_KEY, JSON.stringify(payload.suggestions));
-    if (payload.clientId && !localStorage.getItem(CLIENT_KEY)) {
-      localStorage.setItem(CLIENT_KEY, payload.clientId);
-    }
+    if (payload.clientId) applySharedClientId(payload.clientId, false);
     if (payload.theme) setSceneTheme(payload.theme, true);
     if (payload.ambientPrefs) localStorage.setItem(AMBIENT_PREFS_KEY, JSON.stringify(payload.ambientPrefs));
     if (payload.djState) {
@@ -1551,15 +1585,7 @@ function initializeJamFromUrl() {
   const room = sanitizeRoomCode(params.get('room'));
   const cid = (params.get('cid') || '').trim();
 
-  if (cid && !localStorage.getItem(CLIENT_KEY)) {
-    localStorage.setItem(CLIENT_KEY, cid);
-  }
-
-  // If a shared client id is present, don't keep guests stuck in local demo mode.
-  if (cid && localStorage.getItem(DEMO_KEY) === '1') {
-    localStorage.removeItem(DEMO_KEY);
-    updateSpotifyBadge(false, false);
-  }
+  applySharedClientId(cid, true);
 
   if (!room) {
     updateJamOverlayFields();
@@ -1679,12 +1705,14 @@ function esc2(s) { return String(s).replace(/'/g,"\\'").replace(/"/g,'\\"').repl
   const params = new URLSearchParams(window.location.search);
   const code   = params.get('code');
   const error  = params.get('error');
+  const sharedCid = (params.get('cid') || '').trim();
 
   // Handle OAuth callback
   if (code) {
     history.replaceState({}, '', '/');
     const token = await exchangeToken(code);
     if (token) {
+      sessionStorage.removeItem(AUTO_AUTH_KEY);
       hideSetup();
       updateSpotifyBadge(true, false);
       showToast('Spotify connected! 🎵');
@@ -1705,12 +1733,19 @@ function esc2(s) { return String(s).replace(/'/g,"\\'").replace(/"/g,'\\"').repl
       // Silently refresh if expired
       const expiry = parseInt(localStorage.getItem(EXPIRY_KEY) || '0');
       if (Date.now() > expiry - 60000) { await refreshToken(); }
+      sessionStorage.removeItem(AUTO_AUTH_KEY);
       hideSetup();
       updateSpotifyBadge(true, false);
     } else if (demo) {
       hideSetup();
       updateSpotifyBadge(false, true);
     } else if (clientId) {
+      if (sharedCid && sessionStorage.getItem(AUTO_AUTH_KEY) !== '1') {
+        sessionStorage.setItem(AUTO_AUTH_KEY, '1');
+        showToast('Connecting Spotify...');
+        await initiateAuth();
+        return;
+      }
       // Has client ID but no token — re-auth
       updateSpotifyBadge(false, false);
     } else {
