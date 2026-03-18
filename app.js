@@ -384,8 +384,8 @@ function updateSpotifyVolumeUI() {
 }
 
 function applySpotifyVolume(delayMs = 0) {
-  // Volume is handled natively by the Spotify embed's own controls.
-  // Do not override it programmatically so the user's in-player slider works.
+  // Spotify volume is handled natively by its own embed controls.
+  // masterVolume only affects the ambient audio engine.
   return;
 }
 
@@ -426,7 +426,7 @@ function mountSpotifyTrackEmbed(trackId, startSeconds = 0) {
   spotifyIframeApi.createController(host, {
     uri: `spotify:track:${trackId}`,
     width: '100%',
-    height: 232,
+    height: 80,
     theme: 'black',
   }, (controller) => {
     spotifyController = controller;
@@ -699,6 +699,26 @@ function updateNowMini(track) {
   text.textContent = `${track.name} • ${track.artist}`;
 }
 
+function updatePlayerBar(track) {
+  const artEl    = document.getElementById('playerArt');
+  const nameEl   = document.getElementById('playerTrackName');
+  const artistEl = document.getElementById('playerTrackArtist');
+  if (!nameEl) return;
+  if (!track) {
+    if (artEl) artEl.innerHTML = '🎵';
+    nameEl.textContent   = 'Nothing playing';
+    artistEl.textContent = '—';
+  } else {
+    if (artEl) {
+      artEl.innerHTML = track.image
+        ? `<img src="${track.image}" alt="${esc(track.name)}">`
+        : '🎵';
+    }
+    nameEl.textContent   = track.name;
+    artistEl.textContent = track.artist;
+  }
+}
+
 // ============================================================
 //  PKCE UTILS
 // ============================================================
@@ -811,6 +831,97 @@ async function searchTracks(query) {
   return d.tracks?.items || [];
 }
 
+async function searchPlaylists(query) {
+  const token = await getToken();
+  if (!token) return null;
+  const r = await fetch(`https://api.spotify.com/v1/search?q=${encodeURIComponent(query)}&type=playlist&limit=6`, {
+    headers: { Authorization: 'Bearer ' + token }
+  });
+  if (!r.ok) return null;
+  const d = await r.json();
+  return d.playlists?.items?.filter(Boolean) || [];
+}
+
+let _playlistSearchCache = {};
+
+async function doPlaylistSearch() {
+  const input   = document.getElementById('playlistSearchInput');
+  const results = document.getElementById('playlistResults');
+  const status  = document.getElementById('mixesStatus');
+  if (!input || !results) return;
+
+  const q = input.value.trim();
+  const demoMode = localStorage.getItem(DEMO_KEY) === '1';
+  const token    = localStorage.getItem(TOKEN_KEY);
+
+  if (!token && !demoMode) {
+    showToast('Connect Spotify to search playlists');
+    showSetup();
+    return;
+  }
+
+  if (!q) { showToast('Enter a playlist name to search'); return; }
+
+  if (status) status.textContent = 'Searching…';
+  results.innerHTML = '<div class="playlist-status"><div class="spinner"></div></div>';
+
+  if (demoMode) {
+    results.innerHTML = '<div class="playlist-status">Playlist search needs Spotify — try demo songs instead!</div>';
+    if (status) status.textContent = '';
+    return;
+  }
+
+  const playlists = await searchPlaylists(q);
+  if (!playlists) {
+    results.innerHTML = '<div class="playlist-status">⚠️ Search failed</div>';
+    return;
+  }
+  if (!playlists.length) {
+    results.innerHTML = '<div class="playlist-status">No playlists found</div>';
+    return;
+  }
+
+  _playlistSearchCache = {};
+  playlists.forEach(p => { _playlistSearchCache[p.id] = p; });
+
+  results.innerHTML = playlists.map(p => {
+    const img = p.images?.[0]?.url || '';
+    const count = p.tracks?.total || '?';
+    return `<div class="playlist-item" onclick="importPlaylist('${p.id}')">
+      ${img ? `<img class="playlist-art" src="${img}" alt="">` : '<div class="playlist-art" style="font-size:18px;display:flex;align-items:center;justify-content:center">🎵</div>'}
+      <div class="playlist-info">
+        <div class="playlist-name">${esc(p.name)}</div>
+        <div class="playlist-tracks">${count} tracks</div>
+      </div>
+      <div class="playlist-import">+ Import 5</div>
+    </div>`;
+  }).join('');
+
+  if (status) status.textContent = `${playlists.length} playlists found`;
+}
+
+async function importPlaylist(playlistId) {
+  const status = document.getElementById('mixesStatus');
+  if (status) status.textContent = 'Importing tracks…';
+  showToast('Loading playlist…');
+
+  const tracks = await fetchPlaylistTracks(playlistId, 15);
+  if (!tracks.length) {
+    showToast('Could not load tracks from that playlist');
+    if (status) status.textContent = 'Import failed';
+    return;
+  }
+
+  let added = 0;
+  for (const track of uniqueRandom(tracks, 5)) {
+    if (addTrack(track)) added++;
+    if (getState().queue.length >= MAX_QUEUE) break;
+  }
+
+  if (status) status.textContent = `Imported ${added} track${added !== 1 ? 's' : ''}`;
+  showToast(`Imported ${added} track${added !== 1 ? 's' : ''} 🎶`);
+}
+
 async function fetchMyMixes() {
   const token = await getToken();
   if (!token) return [];
@@ -833,30 +944,9 @@ async function fetchPlaylistTracks(playlistId, limit = 5) {
   return (d.items || []).map(i => i.track).filter(Boolean);
 }
 
-async function loadSpotifyMixes() {
-  const select = document.getElementById('mixesSelect');
-  const status = document.getElementById('mixesStatus');
-  if (!select || !status) return;
-
-  const token = localStorage.getItem(TOKEN_KEY);
-  if (!token) {
-    select.innerHTML = '';
-    status.textContent = 'Connect Spotify to load your playlists';
-    return;
-  }
-
-  status.textContent = 'Loading your mixes...';
-  const mixes = await fetchMyMixes();
-  playlistMixCache = mixes;
-
-  if (!mixes.length) {
-    select.innerHTML = '';
-    status.textContent = 'No playlists found in your Spotify account';
-    return;
-  }
-
-  select.innerHTML = mixes.map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join('');
-  status.textContent = `${mixes.length} playlists loaded`;
+function loadSpotifyMixes() {
+  // Replaced by doPlaylistSearch() — playlists are now searched on demand.
+  return;
 }
 
 async function importSelectedMixTracks() {
@@ -977,6 +1067,7 @@ function renderNowPlaying() {
     wrap.dataset.trackId = 'none';
     wrap.dataset.paused = '0';
     updateNowMini(null);
+    updatePlayerBar(null);
     const btn = document.getElementById('jamPlayPauseBtn');
     if (btn) btn.textContent = '⏯ Pause';
     wrap.innerHTML = `<div class="no-playing">
@@ -1020,6 +1111,7 @@ function renderNowPlaying() {
   wrap.dataset.trackId = np.id;
   wrap.dataset.paused  = isPaused ? '1' : '0';
   updateNowMini(np);
+  updatePlayerBar(np);
   const btn = document.getElementById('jamPlayPauseBtn');
   if (btn) btn.textContent = isPaused ? '⏯ Resume' : '⏯ Pause';
 
@@ -1042,7 +1134,7 @@ function renderNowPlaying() {
     const startSuffix = elapsedSeconds > 0 ? `&t=${elapsedSeconds}` : '';
     wrap.innerHTML = `<iframe
       src="https://open.spotify.com/embed/track/${np.id}?utm_source=generator&theme=0${startSuffix}"
-      width="100%" height="232"
+      width="100%" height="80"
       allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
       loading="lazy">
     </iframe>`;
