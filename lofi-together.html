@@ -97,6 +97,7 @@
       LO-FI TOGETHER
     </div>
     <div class="header-right">
+      <button class="jam-btn" id="jamBtn" onclick="openJamOverlay()">Jam Together</button>
       <div class="now-mini" id="nowMini">
         <span class="dot"></span>
         <span id="nowMiniText">Nothing playing</span>
@@ -185,10 +186,39 @@
     </div>
 
     <div class="player-actions">
+      <button id="playerToggleBtn" onclick="togglePlayerPlayback()">Pause</button>
+      <button onclick="restartPlayerTrack()">Restart</button>
       <button onclick="playTopSong()">Next Voted</button>
       <button onclick="openSearch()">Suggest</button>
     </div>
   </footer>
+</div>
+
+<!-- Jam Overlay -->
+<div class="overlay hidden" id="jamOverlay">
+  <div class="modal">
+    <div class="modal-title">🤝 JAM TOGETHER</div>
+    <div class="modal-subtitle">Create a shared room link and send it to a friend. Queue, votes, and now-playing will sync live.</div>
+
+    <div class="field">
+      <label>Room Code</label>
+      <input type="text" id="jamCodeInput" placeholder="e.g. sunset-room" maxlength="40" />
+      <div class="field-hint">Use letters, numbers, dashes</div>
+    </div>
+
+    <div class="field">
+      <label>Share Link</label>
+      <input type="text" id="jamLinkInput" readonly />
+    </div>
+
+    <div class="jam-modal-actions">
+      <button class="btn-primary" type="button" onclick="startJamRoom()">START / JOIN ROOM</button>
+      <button class="btn-ghost" type="button" onclick="copyJamLink()">COPY LINK</button>
+      <button class="btn-ghost" type="button" onclick="closeJamOverlay()">CLOSE</button>
+    </div>
+
+    <div class="field-hint" id="jamStatusText">Not connected</div>
+  </div>
 </div>
 
 <!-- Setup Overlay -->
@@ -241,6 +271,7 @@
 <!-- Toast -->
 <div id="toast"></div>
 
+<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

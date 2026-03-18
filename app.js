@@ -108,9 +108,15 @@ const ambientEngine = {
   master: null,
   channels: {},
   ready: false,
+  reverb: null,
 };
 
 let autoAdvanceLock = false;
+let applyingRemoteSync = false;
+let jamPeer = null;
+let jamConnections = [];
+let jamRoomCode = '';
+let jamLastTs = 0;
 
 // Cross-tab sync
 let bc;
@@ -130,6 +136,7 @@ function getState() {
 function saveState(state) {
   localStorage.setItem(STATE_KEY, JSON.stringify(state));
   if (bc) bc.postMessage({ type:'state', state });
+  if (!applyingRemoteSync) broadcastJamSync();
   renderAll();
 }
 
@@ -140,6 +147,7 @@ function getAmbientPrefs() {
 
 function saveAmbientPrefs(prefs) {
   localStorage.setItem(AMBIENT_PREFS_KEY, JSON.stringify(prefs));
+  if (!applyingRemoteSync) broadcastJamSync();
 }
 
 function getCurrentTheme() {
@@ -153,7 +161,26 @@ function initAmbientEngine() {
   if (!Ctx) return;
   ambientEngine.ctx = new Ctx();
   ambientEngine.master = ambientEngine.ctx.createGain();
-  ambientEngine.master.gain.value = 0.7;
+  ambientEngine.master.gain.value = 0.52;
+
+  const reverb = ambientEngine.ctx.createConvolver();
+  const length = ambientEngine.ctx.sampleRate * 2.8;
+  const impulse = ambientEngine.ctx.createBuffer(2, length, ambientEngine.ctx.sampleRate);
+  for (let c = 0; c < 2; c++) {
+    const data = impulse.getChannelData(c);
+    for (let i = 0; i < length; i++) {
+      const decay = Math.pow(1 - i / length, 2.6);
+      data[i] = (Math.random() * 2 - 1) * decay * 0.2;
+    }
+  }
+  reverb.buffer = impulse;
+  ambientEngine.reverb = reverb;
+
+  const wet = ambientEngine.ctx.createGain();
+  wet.gain.value = 0.18;
+  reverb.connect(wet);
+  wet.connect(ambientEngine.master);
+
   ambientEngine.master.connect(ambientEngine.ctx.destination);
   ambientEngine.ready = true;
 }
@@ -163,45 +190,90 @@ function resumeAmbient() {
   if (ambientEngine.ctx && ambientEngine.ctx.state === 'suspended') ambientEngine.ctx.resume();
 }
 
-function noiseBuffer(seconds = 2) {
+function noiseBuffer(seconds = 2, color = 'white') {
   const n = ambientEngine.ctx.sampleRate * seconds;
   const b = ambientEngine.ctx.createBuffer(1, n, ambientEngine.ctx.sampleRate);
   const d = b.getChannelData(0);
+
+  if (color === 'brown') {
+    let last = 0;
+    for (let i = 0; i < n; i++) {
+      const white = Math.random() * 2 - 1;
+      last = (last + 0.02 * white) / 1.02;
+      d[i] = last * 3.5;
+    }
+    return b;
+  }
+
+  if (color === 'pink') {
+    let b0 = 0, b1 = 0, b2 = 0, b3 = 0, b4 = 0, b5 = 0, b6 = 0;
+    for (let i = 0; i < n; i++) {
+      const white = Math.random() * 2 - 1;
+      b0 = 0.99886 * b0 + white * 0.0555179;
+      b1 = 0.99332 * b1 + white * 0.0750759;
+      b2 = 0.96900 * b2 + white * 0.1538520;
+      b3 = 0.86650 * b3 + white * 0.3104856;
+      b4 = 0.55000 * b4 + white * 0.5329522;
+      b5 = -0.7616 * b5 - white * 0.0168980;
+      d[i] = (b0 + b1 + b2 + b3 + b4 + b5 + b6 + white * 0.5362) * 0.11;
+      b6 = white * 0.115926;
+    }
+    return b;
+  }
+
   for (let i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
   return b;
 }
 
 function buildAmbientNode(type) {
+  const color = type === 'pink-low' ? 'brown' : 'pink';
   const src = ambientEngine.ctx.createBufferSource();
-  src.buffer = noiseBuffer(3);
+  src.buffer = noiseBuffer(4, color);
   src.loop = true;
 
-  const f1 = ambientEngine.ctx.createBiquadFilter();
-  f1.type = 'lowpass';
-  f1.frequency.value = 600;
+  const hp = ambientEngine.ctx.createBiquadFilter();
+  hp.type = 'highpass';
+  hp.frequency.value = 70;
 
-  const f2 = ambientEngine.ctx.createBiquadFilter();
-  f2.type = 'highpass';
-  f2.frequency.value = 80;
+  const lp = ambientEngine.ctx.createBiquadFilter();
+  lp.type = 'lowpass';
+  lp.frequency.value = 980;
+  lp.Q.value = 0.5;
 
   if (type === 'white-band') {
-    f1.frequency.value = 3500;
-    f2.frequency.value = 600;
+    hp.frequency.value = 520;
+    lp.frequency.value = 2800;
+    lp.Q.value = 0.8;
   }
   if (type === 'pink-high') {
-    f1.frequency.value = 1200;
-    f2.frequency.value = 240;
+    hp.frequency.value = 180;
+    lp.frequency.value = 1400;
   }
+
+  const pan = ambientEngine.ctx.createStereoPanner();
+  pan.pan.value = (Math.random() * 0.34) - 0.17;
 
   const gain = ambientEngine.ctx.createGain();
   gain.gain.value = 0;
 
-  src.connect(f2);
-  f2.connect(f1);
-  f1.connect(gain);
+  const lfo = ambientEngine.ctx.createOscillator();
+  const lfoGain = ambientEngine.ctx.createGain();
+  lfo.type = 'sine';
+  lfo.frequency.value = 0.04 + Math.random() * 0.08;
+  lfoGain.gain.value = type === 'white-band' ? 90 : 55;
+  lfo.connect(lfoGain);
+  lfoGain.connect(lp.frequency);
+
+  src.connect(hp);
+  hp.connect(lp);
+  lp.connect(pan);
+  pan.connect(gain);
   gain.connect(ambientEngine.master);
+  if (ambientEngine.reverb) gain.connect(ambientEngine.reverb);
+
   src.start();
-  return { src, gain };
+  lfo.start();
+  return { src, gain, lfo, lfoGain, hp, lp, pan };
 }
 
 function ensureAmbientChannel(key, type) {
@@ -310,6 +382,7 @@ function setSceneTheme(themeId, persist = true) {
 
   if (persist) localStorage.setItem(THEME_KEY, chosen);
   renderAmbientMixer();
+  if (!applyingRemoteSync) broadcastJamSync();
 }
 
 function updateNowMini(track) {
@@ -483,7 +556,13 @@ function playTopSong() {
   if (!state.queue.length) return;
   state.queue.sort((a, b) => b.votes - a.votes);
   const top = state.queue[0];
-  state.nowPlaying = { ...top, startedAt: Date.now(), durationMs: top.durationMs || DEFAULT_TRACK_MS };
+  state.nowPlaying = {
+    ...top,
+    startedAt: Date.now(),
+    durationMs: top.durationMs || DEFAULT_TRACK_MS,
+    isPaused: false,
+    pausedAt: null,
+  };
   state.queue = state.queue.filter(t => t.id !== top.id);
   saveState(state);
   showToast('Now playing: ' + top.name + ' ✨');
@@ -600,6 +679,7 @@ function renderPlayerBar() {
   const curEl = document.getElementById('playerTimeCurrent');
   const totalEl = document.getElementById('playerTimeTotal');
   const fillEl = document.getElementById('playerProgressFill');
+  const toggleBtn = document.getElementById('playerToggleBtn');
 
   if (!np) {
     artEl.innerHTML = '♪';
@@ -608,6 +688,7 @@ function renderPlayerBar() {
     curEl.textContent = '0:00';
     totalEl.textContent = '0:00';
     fillEl.style.width = '0%';
+    if (toggleBtn) toggleBtn.textContent = 'Pause';
     return;
   }
 
@@ -617,12 +698,14 @@ function renderPlayerBar() {
 
   const startedAt = np.startedAt || Date.now();
   const duration = np.durationMs || DEFAULT_TRACK_MS;
-  const elapsed = Math.max(0, Math.min(duration, Date.now() - startedAt));
+  const elapsedBase = np.isPaused ? ((np.pausedAt || Date.now()) - startedAt) : (Date.now() - startedAt);
+  const elapsed = Math.max(0, Math.min(duration, elapsedBase));
   const pct = duration ? (elapsed / duration * 100) : 0;
 
   curEl.textContent = formatMs(elapsed);
   totalEl.textContent = formatMs(duration);
   fillEl.style.width = `${pct}%`;
+  if (toggleBtn) toggleBtn.textContent = np.isPaused ? 'Resume' : 'Pause';
 }
 
 function scrubPlayer(event) {
@@ -632,8 +715,44 @@ function scrubPlayer(event) {
   const rect = bar.getBoundingClientRect();
   const ratio = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width));
   const duration = state.nowPlaying.durationMs || DEFAULT_TRACK_MS;
-  state.nowPlaying.startedAt = Date.now() - Math.floor(duration * ratio);
+  const targetOffset = Math.floor(duration * ratio);
+  if (state.nowPlaying.isPaused) {
+    state.nowPlaying.startedAt = Date.now() - targetOffset;
+    state.nowPlaying.pausedAt = Date.now();
+  } else {
+    state.nowPlaying.startedAt = Date.now() - targetOffset;
+  }
   saveState(state);
+}
+
+function togglePlayerPlayback() {
+  const state = getState();
+  if (!state.nowPlaying) return;
+  const np = state.nowPlaying;
+
+  if (np.isPaused) {
+    const pauseAt = np.pausedAt || Date.now();
+    np.startedAt = (np.startedAt || Date.now()) + (Date.now() - pauseAt);
+    np.isPaused = false;
+    np.pausedAt = null;
+    showToast('Resumed ▶');
+  } else {
+    np.isPaused = true;
+    np.pausedAt = Date.now();
+    showToast('Paused ❚❚');
+  }
+
+  saveState(state);
+}
+
+function restartPlayerTrack() {
+  const state = getState();
+  if (!state.nowPlaying) return;
+  state.nowPlaying.startedAt = Date.now();
+  state.nowPlaying.pausedAt = null;
+  state.nowPlaying.isPaused = false;
+  saveState(state);
+  showToast('Restarted track ⏮');
 }
 
 function maybeAutoAdvanceJam() {
@@ -642,6 +761,7 @@ function maybeAutoAdvanceJam() {
   const state = getState();
   const np = state.nowPlaying;
   if (!np) return;
+  if (np.isPaused) return;
 
   const startedAt = np.startedAt || 0;
   const duration = np.durationMs || DEFAULT_TRACK_MS;
@@ -664,6 +784,7 @@ function getSuggestions() {
 function saveSuggestions(items) {
   localStorage.setItem(SUGGESTIONS_KEY, JSON.stringify(items));
   if (bc) bc.postMessage({ type: 'suggestions', suggestions: items });
+  if (!applyingRemoteSync) broadcastJamSync();
 }
 
 function renderSuggestions() {
@@ -915,6 +1036,196 @@ function closeSearch() {
   document.getElementById('searchOverlay').classList.add('hidden');
 }
 
+function sanitizeRoomCode(raw) {
+  return (raw || '')
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9-]/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')
+    .slice(0, 32);
+}
+
+function roomShareUrl(code) {
+  const url = new URL(window.location.href);
+  url.searchParams.set('room', code);
+  url.searchParams.delete('code');
+  url.searchParams.delete('error');
+  return url.toString();
+}
+
+function updateJamOverlayFields() {
+  const code = jamRoomCode || sanitizeRoomCode(new URLSearchParams(window.location.search).get('room')) || '';
+  const codeInput = document.getElementById('jamCodeInput');
+  const linkInput = document.getElementById('jamLinkInput');
+  const status = document.getElementById('jamStatusText');
+  if (codeInput) codeInput.value = code;
+  if (linkInput) linkInput.value = code ? roomShareUrl(code) : '';
+  if (status) {
+    const peerOk = jamConnections.some(c => c && c.open);
+    status.textContent = code ? `${peerOk ? 'Connected' : 'Waiting'} in room ${code}` : 'Not connected';
+  }
+}
+
+function openJamOverlay() {
+  updateJamOverlayFields();
+  document.getElementById('jamOverlay').classList.remove('hidden');
+}
+
+function closeJamOverlay() {
+  document.getElementById('jamOverlay').classList.add('hidden');
+}
+
+async function copyJamLink() {
+  const linkInput = document.getElementById('jamLinkInput');
+  if (!linkInput || !linkInput.value) {
+    showToast('Start a room first');
+    return;
+  }
+
+  try {
+    await navigator.clipboard.writeText(linkInput.value);
+    showToast('Jam link copied 🔗');
+  } catch {
+    linkInput.select();
+    document.execCommand('copy');
+    showToast('Jam link copied 🔗');
+  }
+}
+
+function disconnectJamPeer() {
+  jamConnections.forEach(conn => {
+    try { conn.close(); } catch {}
+  });
+  jamConnections = [];
+  if (jamPeer) {
+    try { jamPeer.destroy(); } catch {}
+    jamPeer = null;
+  }
+}
+
+function jamPayload() {
+  return {
+    type: 'sync',
+    ts: Date.now(),
+    state: getState(),
+    suggestions: getSuggestions(),
+    theme: getCurrentTheme(),
+    ambientPrefs: getAmbientPrefs(),
+  };
+}
+
+function applyJamPayload(payload) {
+  if (!payload || payload.type !== 'sync') return;
+  if (payload.ts <= jamLastTs) return;
+  jamLastTs = payload.ts;
+
+  applyingRemoteSync = true;
+  try {
+    if (payload.state) localStorage.setItem(STATE_KEY, JSON.stringify(payload.state));
+    if (payload.suggestions) localStorage.setItem(SUGGESTIONS_KEY, JSON.stringify(payload.suggestions));
+    if (payload.theme) setSceneTheme(payload.theme, true);
+    if (payload.ambientPrefs) localStorage.setItem(AMBIENT_PREFS_KEY, JSON.stringify(payload.ambientPrefs));
+  } finally {
+    applyingRemoteSync = false;
+  }
+
+  renderAmbientMixer();
+  renderAll();
+}
+
+function broadcastJamSync() {
+  const payload = jamPayload();
+  jamConnections = jamConnections.filter(c => c && c.open);
+  jamConnections.forEach(conn => {
+    try { conn.send(payload); } catch {}
+  });
+  updateJamOverlayFields();
+}
+
+function bindJamConnection(conn) {
+  if (!conn) return;
+  jamConnections.push(conn);
+
+  conn.on('open', () => {
+    updateJamOverlayFields();
+    conn.send(jamPayload());
+    showToast('Friend joined the jam 🤝');
+  });
+
+  conn.on('data', (data) => {
+    applyJamPayload(data);
+  });
+
+  conn.on('close', () => {
+    jamConnections = jamConnections.filter(c => c !== conn);
+    updateJamOverlayFields();
+  });
+}
+
+function startJamRoom() {
+  const input = document.getElementById('jamCodeInput');
+  const code = sanitizeRoomCode(input ? input.value : '');
+  if (!code) {
+    showToast('Enter a room code first');
+    return;
+  }
+
+  if (typeof Peer === 'undefined') {
+    showToast('Jam service unavailable right now');
+    return;
+  }
+
+  jamRoomCode = code;
+  const url = new URL(window.location.href);
+  url.searchParams.set('room', code);
+  history.replaceState({}, '', url.toString());
+  updateJamOverlayFields();
+
+  disconnectJamPeer();
+
+  const hostId = `lofi-jam-${code}`;
+  jamPeer = new Peer(hostId);
+
+  jamPeer.on('open', () => {
+    showToast(`Room ${code} live`);
+    updateJamOverlayFields();
+  });
+
+  jamPeer.on('connection', (conn) => {
+    bindJamConnection(conn);
+  });
+
+  jamPeer.on('error', (err) => {
+    // If host ID exists, join as guest.
+    if (String(err?.type || '').includes('unavailable-id')) {
+      try { jamPeer.destroy(); } catch {}
+      jamPeer = new Peer();
+      jamPeer.on('open', () => {
+        const conn = jamPeer.connect(hostId, { reliable: true });
+        bindJamConnection(conn);
+        updateJamOverlayFields();
+      });
+      return;
+    }
+    showToast('Jam connection issue');
+  });
+}
+
+function initializeJamFromUrl() {
+  const params = new URLSearchParams(window.location.search);
+  const room = sanitizeRoomCode(params.get('room'));
+  if (!room) {
+    updateJamOverlayFields();
+    return;
+  }
+
+  const codeInput = document.getElementById('jamCodeInput');
+  if (codeInput) codeInput.value = room;
+  jamRoomCode = room;
+  startJamRoom();
+}
+
 function bindKeyboardShortcuts() {
   document.addEventListener('keydown', (event) => {
     const tag = (event.target && event.target.tagName) ? event.target.tagName.toLowerCase() : '';
@@ -1000,6 +1311,7 @@ function esc2(s) { return String(s).replace(/'/g,"\\'").replace(/"/g,'\\"').repl
   bindKeyboardShortcuts();
   renderAmbientMixer();
   renderSuggestions();
+  initializeJamFromUrl();
 
   const params = new URLSearchParams(window.location.search);
   const code   = params.get('code');

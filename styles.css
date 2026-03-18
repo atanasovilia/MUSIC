@@ -168,6 +168,24 @@ header {
   display: flex; align-items: center; gap: 12px;
 }
 
+.jam-btn {
+  border: 1px solid rgba(120,100,220,0.35);
+  border-radius: 999px;
+  background: rgba(120,100,220,0.2);
+  color: var(--purple-light);
+  padding: 6px 12px;
+  font-size: 11px;
+  font-family: var(--font-pixel);
+  letter-spacing: 0.5px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.jam-btn:hover {
+  background: rgba(120,100,220,0.35);
+  color: #fff;
+}
+
 .now-mini {
   display: none;
   align-items: center;
@@ -762,6 +780,29 @@ header {
   color: var(--text);
 }
 
+.jam-modal-actions {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.btn-ghost {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--border);
+  background: rgba(255,255,255,0.04);
+  color: var(--text-sub);
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.btn-ghost:hover {
+  border-color: var(--border-glow);
+  color: var(--text);
+}
+
 /* ===== MODALS & OVERLAYS ===== */
 .overlay {
   position: fixed; inset: 0;
@@ -1058,6 +1099,15 @@ header {
 
 /* ===== RESPONSIVE ===== */
 @media (max-width: 680px) {
+  .jam-btn {
+    padding: 6px 10px;
+    font-size: 10px;
+  }
+
+  .now-mini {
+    display: none !important;
+  }
+
   .scene-strip { padding: 8px 16px 0; }
 
   .main-grid {
