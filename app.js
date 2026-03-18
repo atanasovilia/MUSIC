@@ -103,7 +103,7 @@ async function genChallenge(v) {
 // ============================================================
 function getRedirectUri() {
   // Always use a single callback URI so Spotify redirect matching stays exact.
-  return `${window.location.origin}/`;
+  return window.location.origin;
 }
 
 async function initiateAuth() {
