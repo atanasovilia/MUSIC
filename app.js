@@ -885,7 +885,7 @@ function playTopSong() {
   state.queue = state.queue.filter(t => t.id !== top.id);
   saveState(state);
   showToast('Now playing: ' + top.name + ' ✨');
-
+}
 
 // ============================================================
 //  RENDER
