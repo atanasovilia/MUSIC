@@ -154,10 +154,11 @@
 <!-- ===== BOTTOM PLAYER BAR (Spotify-style) ===== -->
 <div class="player-bar" id="playerBar">
   <div class="player-left">
-    <div class="player-art" id="playerArt">🎵</div>
+    <div class="player-art" id="playerArt"><span class="player-art-fallback">♪</span></div>
     <div class="player-meta">
+      <div class="player-eyebrow">Room Soundtrack</div>
       <div class="player-track-name" id="playerTrackName">Nothing playing</div>
-      <div class="player-track-artist" id="playerTrackArtist">—</div>
+      <div class="player-track-artist" id="playerTrackArtist">Queue a track to start the lounge</div>
     </div>
   </div>
 
@@ -193,16 +194,33 @@
 
   <div class="player-right">
     <div class="player-actions-right">
-      <button class="utility-btn" onclick="playTopSong()" id="playTopBtn" title="Play top voted song">Top</button>
-      <button class="utility-btn" onclick="openSearch()" title="Add song">Add</button>
+      <button class="utility-btn" onclick="playTopSong()" id="playTopBtn" title="Play top voted song">Play Top</button>
+      <button class="utility-btn" onclick="openSearch()" title="Add song">Add Track</button>
     </div>
 
-    <div class="player-volume-wrap">
-      <button class="volume-btn" id="masterMuteBtn" onclick="toggleAmbientMute()" title="Mute" aria-label="Mute">
-        <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8.72 1.84a.75.75 0 0 1 .28.58v11.16a.75.75 0 0 1-1.28.53L4.6 10.98H2.75A1.75 1.75 0 0 1 1 9.23V6.77c0-.97.78-1.75 1.75-1.75H4.6l3.12-3.13a.75.75 0 0 1 1-.05Zm3.72 2.86a.75.75 0 0 1 1.06 0A4.75 4.75 0 0 1 14.9 8a4.75 4.75 0 0 1-1.4 3.3.75.75 0 1 1-1.06-1.06A3.25 3.25 0 0 0 13.4 8c0-.9-.37-1.72-.96-2.3a.75.75 0 0 1 0-1.06Zm-1.94 1.94a.75.75 0 0 1 1.06 0A2 2 0 0 1 12.12 8a2 2 0 0 1-.56 1.36.75.75 0 1 1-1.06-1.06.5.5 0 0 0 .16-.36.5.5 0 0 0-.16-.36.75.75 0 0 1 0-1.06Z"/></svg>
-      </button>
-      <input id="playerVolumeRange" type="range" min="0" max="100" value="28" title="Volume">
-      <span class="volume-value" id="masterVolumeValue">28%</span>
+    <div class="player-volume-stack">
+      <div class="player-volume-group">
+        <div class="player-volume-label-row">
+          <span class="player-volume-label">Master</span>
+          <span class="volume-value" id="masterVolumeValue">28%</span>
+        </div>
+        <div class="player-volume-wrap">
+          <button class="volume-btn" id="masterMuteBtn" onclick="toggleAmbientMute()" title="Mute" aria-label="Mute">
+            <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8.72 1.84a.75.75 0 0 1 .28.58v11.16a.75.75 0 0 1-1.28.53L4.6 10.98H2.75A1.75 1.75 0 0 1 1 9.23V6.77c0-.97.78-1.75 1.75-1.75H4.6l3.12-3.13a.75.75 0 0 1 1-.05Zm3.72 2.86a.75.75 0 0 1 1.06 0A4.75 4.75 0 0 1 14.9 8a4.75 4.75 0 0 1-1.4 3.3.75.75 0 1 1-1.06-1.06A3.25 3.25 0 0 0 13.4 8c0-.9-.37-1.72-.96-2.3a.75.75 0 0 1 0-1.06Zm-1.94 1.94a.75.75 0 0 1 1.06 0A2 2 0 0 1 12.12 8a2 2 0 0 1-.56 1.36.75.75 0 1 1-1.06-1.06.5.5 0 0 0 .16-.36.5.5 0 0 0-.16-.36.75.75 0 0 1 0-1.06Z"/></svg>
+          </button>
+          <input id="playerVolumeRange" type="range" min="0" max="100" value="28" title="Master volume">
+        </div>
+      </div>
+      <div class="player-volume-group">
+        <div class="player-volume-label-row">
+          <span class="player-volume-label">Music</span>
+          <span class="volume-value" id="musicVolumeValue">78%</span>
+        </div>
+        <div class="player-volume-wrap player-volume-wrap-secondary">
+          <span class="volume-pill" aria-hidden="true">♪</span>
+          <input id="musicVolumeRange" type="range" min="0" max="100" value="78" title="Music level">
+        </div>
+      </div>
     </div>
   </div>
 </div>

@@ -72,8 +72,10 @@ const PROD_SPOTIFY_REDIRECT_URI = 'https://musicdistro.vercel.app';
 const DEFAULT_TRACK_MS = 180000;
 const MAX_QUEUE = 5;
 const DJ_STATE_KEY = 'lofi_dj_state_v1';
+const REPEAT_TRACK_KEY = 'lofi_repeat_track_v1';
 
 const SCENE_THEMES = [
+  { id: 'space', emoji: '🌌', label: 'Space' },
   { id: 'city',  emoji: '🌃', label: 'City' },
   { id: 'beach', emoji: '🌊', label: 'Beach' },
   { id: 'rain',  emoji: '🌧️', label: 'Rain' },
@@ -82,6 +84,11 @@ const SCENE_THEMES = [
 ];
 
 const AMBIENT_SCENES = {
+  space: [
+    { id: 'drift',    icon: '🪐', label: 'Orbital Drift', type: 'spacePad', on: true,  vol: 0.24 },
+    { id: 'stardust', icon: '✨', label: 'Star Dust',     type: 'stardust', on: true,  vol: 0.16 },
+    { id: 'signal',   icon: '📡', label: 'Radio Bloom',   type: 'signal',   on: false, vol: 0.10 },
+  ],
   city: [
     { id: 'traffic',  icon: '🚗', label: 'City Traffic',  type: 'traffic',  on: true,  vol: 0.28 },
     { id: 'rain',     icon: '🌧️', label: 'Neon Rain',     type: 'rain',     on: false, vol: 0.22 },
@@ -115,6 +122,9 @@ const ambientEngine = {
   channels: {},
   ready: false,
   reverb: null,
+  tone: null,
+  air: null,
+  compressor: null,
 };
 
 let autoAdvanceLock = false;
@@ -128,9 +138,10 @@ const jamSeenMessageIds = new Set();
 let playlistMixCache = [];
 let masterVolume = 0.28;
 let masterMuted = false;
-let spotifyVolume = 0.7;
+let spotifyVolume = 0.78;
 let spotifyIframeApi = null;
 let spotifyController = null;
+let repeatTrackEnabled = false;
 
 let djState = {
   enabled: false,
@@ -292,6 +303,51 @@ function saveAmbientPrefs(prefs) {
   if (!applyingRemoteSync) broadcastJamSync();
 }
 
+function volumeOnIcon() {
+  return '<svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8.72 1.84a.75.75 0 0 1 .28.58v11.16a.75.75 0 0 1-1.28.53L4.6 10.98H2.75A1.75 1.75 0 0 1 1 9.23V6.77c0-.97.78-1.75 1.75-1.75H4.6l3.12-3.13a.75.75 0 0 1 1-.05Zm3.72 2.86a.75.75 0 0 1 1.06 0A4.75 4.75 0 0 1 14.9 8a4.75 4.75 0 0 1-1.4 3.3.75.75 0 1 1-1.06-1.06A3.25 3.25 0 0 0 13.4 8c0-.9-.37-1.72-.96-2.3a.75.75 0 0 1 0-1.06Zm-1.94 1.94a.75.75 0 0 1 1.06 0A2 2 0 0 1 12.12 8a2 2 0 0 1-.56 1.36.75.75 0 1 1-1.06-1.06.5.5 0 0 0 .16-.36.5.5 0 0 0-.16-.36.75.75 0 0 1 0-1.06Z"/></svg>';
+}
+
+function volumeOffIcon() {
+  return '<svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M9 2.42v11.16a.75.75 0 0 1-1.28.53L4.6 10.98H2.75A1.75 1.75 0 0 1 1 9.23V6.77c0-.97.78-1.75 1.75-1.75H4.6l3.12-3.13A.75.75 0 0 1 9 2.42Zm5.28 2.3a.75.75 0 0 1 0 1.06L12.06 8l2.22 2.22a.75.75 0 1 1-1.06 1.06L11 9.06l-2.22 2.22a.75.75 0 1 1-1.06-1.06L9.94 8 7.72 5.78a.75.75 0 0 1 1.06-1.06L11 6.94l2.22-2.22a.75.75 0 0 1 1.06 0Z"/></svg>';
+}
+
+function playIcon() {
+  return '<svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M4 3.5a.75.75 0 0 1 1.18-.61l7 4.5a.75.75 0 0 1 0 1.22l-7 4.5A.75.75 0 0 1 4 12.5v-9Z"/></svg>';
+}
+
+function pauseIcon() {
+  return '<svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M4.75 2.5a.75.75 0 0 1 .75.75v9.5a.75.75 0 0 1-1.5 0v-9.5a.75.75 0 0 1 .75-.75Zm6.5 0a.75.75 0 0 1 .75.75v9.5a.75.75 0 0 1-1.5 0v-9.5a.75.75 0 0 1 .75-.75Z"/></svg>';
+}
+
+function loadRepeatState() {
+  repeatTrackEnabled = localStorage.getItem(REPEAT_TRACK_KEY) === '1';
+}
+
+function saveRepeatState() {
+  localStorage.setItem(REPEAT_TRACK_KEY, repeatTrackEnabled ? '1' : '0');
+  if (!applyingRemoteSync) broadcastJamSync();
+}
+
+function updateTransportButtons() {
+  const state = getState();
+  const np = state.nowPlaying;
+  const playPauseBtn = document.getElementById('jamPlayPauseBtn');
+  const repeatBtn = document.getElementById('repeatBtn');
+
+  if (playPauseBtn) {
+    const isPlaying = !!np && !np.isPaused;
+    playPauseBtn.innerHTML = isPlaying ? pauseIcon() : playIcon();
+    playPauseBtn.setAttribute('aria-label', isPlaying ? 'Pause room soundtrack' : 'Play room soundtrack');
+    playPauseBtn.setAttribute('title', isPlaying ? 'Pause room soundtrack' : 'Play room soundtrack');
+  }
+
+  if (repeatBtn) {
+    repeatBtn.classList.toggle('active', repeatTrackEnabled);
+    repeatBtn.setAttribute('aria-pressed', repeatTrackEnabled ? 'true' : 'false');
+    repeatBtn.setAttribute('title', repeatTrackEnabled ? 'Repeat current track is on' : 'Repeat current track');
+  }
+}
+
 function loadMasterAudioState() {
   const savedVol = parseFloat(localStorage.getItem(MASTER_VOLUME_KEY) || '0.28');
   masterVolume = Number.isFinite(savedVol) ? Math.max(0, Math.min(1, savedVol)) : 0.28;
@@ -301,11 +357,10 @@ function loadMasterAudioState() {
 function saveMasterAudioState() {
   localStorage.setItem(MASTER_VOLUME_KEY, String(masterVolume));
   localStorage.setItem(MASTER_MUTED_KEY, masterMuted ? '1' : '0');
-  if (!applyingRemoteSync) broadcastJamSync();
 }
 
 function updateMasterVolumeUI() {
-  const range = document.getElementById('masterVolumeRange');
+  const range = document.getElementById('playerVolumeRange');
   const valEl  = document.getElementById('masterVolumeValue');
   const muteBtn = document.getElementById('masterMuteBtn');
   const pct = Math.round(masterVolume * 100);
@@ -313,7 +368,9 @@ function updateMasterVolumeUI() {
   if (valEl) valEl.textContent = pct + '%';
   if (muteBtn) {
     muteBtn.classList.toggle('active', masterMuted);
-    muteBtn.textContent = masterMuted ? '🔇 Unmute' : '🔇 Mute';
+    muteBtn.setAttribute('aria-label', masterMuted ? 'Unmute master output' : 'Mute master output');
+    muteBtn.setAttribute('title', masterMuted ? 'Unmute master output' : 'Mute master output');
+    muteBtn.innerHTML = masterMuted ? volumeOffIcon() : volumeOnIcon();
   }
 }
 
@@ -329,7 +386,7 @@ function updatePlayerRangeTrack() {
   if (!pRange) return;
   const pct = masterMuted ? 0 : Math.round(masterVolume * 100);
   pRange.style.setProperty('--vol-pct', pct + '%');
-  pRange.style.background = `linear-gradient(to right, var(--purple-light) 0%, var(--purple-light) ${pct}%, rgba(255,255,255,0.12) ${pct}%)`;
+  pRange.style.background = `linear-gradient(to right, var(--accent-strong) 0%, var(--accent-strong) ${pct}%, rgba(255,255,255,0.1) ${pct}%)`;
 }
 
 function setMasterVolumeFromUI(value) {
@@ -344,15 +401,13 @@ function setMasterVolumeFromUI(value) {
 }
 
 function bindMasterVolumeControls() {
-  const volumeRange = document.getElementById('masterVolumeRange');
+  const volumeRange = document.getElementById('playerVolumeRange');
   if (!volumeRange) return;
-  
-  // Listen to input events for real-time response (like dragging)
+
   volumeRange.addEventListener('input', (e) => {
     setMasterVolumeFromUI(e.target.value);
   });
-  
-  // Also listen to change events for when user releases (ensures saved state)
+
   volumeRange.addEventListener('change', (e) => {
     setMasterVolumeFromUI(e.target.value);
   });
@@ -374,19 +429,55 @@ function toggleAmbientMute() {
 }
 
 function loadSpotifyVolumeState() {
-  // Volume is now unified with master volume.
-  return;
+  const savedVol = parseFloat(localStorage.getItem(SPOTIFY_VOLUME_KEY) || '0.78');
+  spotifyVolume = Number.isFinite(savedVol) ? Math.max(0, Math.min(1, savedVol)) : 0.78;
+}
+
+function saveSpotifyVolumeState() {
+  localStorage.setItem(SPOTIFY_VOLUME_KEY, String(spotifyVolume));
 }
 
 function updateSpotifyVolumeUI() {
-  // Volume display is unified in volume-panel.
-  return;
+  const range = document.getElementById('musicVolumeRange');
+  const valEl = document.getElementById('musicVolumeValue');
+  const pct = Math.round(spotifyVolume * 100);
+  if (range) range.value = String(pct);
+  if (valEl) valEl.textContent = pct + '%';
+  updateMusicRangeTrack();
+}
+
+function updateMusicRangeTrack() {
+  const range = document.getElementById('musicVolumeRange');
+  if (!range) return;
+  const pct = Math.round(spotifyVolume * 100);
+  range.style.setProperty('--vol-pct', pct + '%');
+  range.style.background = `linear-gradient(to right, var(--accent-soft) 0%, var(--accent-soft) ${pct}%, rgba(255,255,255,0.1) ${pct}%)`;
+}
+
+function setSpotifyVolumeFromUI(value) {
+  spotifyVolume = Math.max(0, Math.min(1, Number(value) / 100));
+  saveSpotifyVolumeState();
+  updateSpotifyVolumeUI();
+  applySpotifyVolume(0);
+}
+
+function bindSpotifyVolumeControls() {
+  const volumeRange = document.getElementById('musicVolumeRange');
+  if (!volumeRange) return;
+
+  volumeRange.addEventListener('input', (e) => {
+    setSpotifyVolumeFromUI(e.target.value);
+  });
+
+  volumeRange.addEventListener('change', (e) => {
+    setSpotifyVolumeFromUI(e.target.value);
+  });
 }
 
 function applySpotifyVolume(delayMs = 0) {
   const doSet = () => {
     if (!spotifyController) return;
-    const vol = masterMuted ? 0 : masterVolume; // 0.0 – 1.0
+    const vol = masterMuted ? 0 : Math.max(0, Math.min(1, masterVolume * spotifyVolume));
     try {
       if (typeof spotifyController.setVolume === 'function') spotifyController.setVolume(vol);
     } catch {}
@@ -455,7 +546,7 @@ function mountSpotifyTrackEmbed(trackId, startSeconds = 0) {
 
 function getCurrentTheme() {
   const cl = Array.from(document.body.classList).find(c => c.startsWith('scene-'));
-  return cl ? cl.replace('scene-', '') : 'city';
+  return cl ? cl.replace('scene-', '') : 'space';
 }
 
 function initAmbientEngine() {
@@ -484,10 +575,35 @@ function initAmbientEngine() {
   ambientEngine.reverb = reverb;
 
   const wet = ctx.createGain();
-  wet.gain.value = 0.14;
+  wet.gain.value = 0.17;
   reverb.connect(wet);
   wet.connect(ambientEngine.master);
-  ambientEngine.master.connect(ctx.destination);
+
+  // Warm the ambience so it feels closer to a Discord-style chill room.
+  const tone = ctx.createBiquadFilter();
+  tone.type = 'lowshelf';
+  tone.frequency.value = 220;
+  tone.gain.value = 1.8;
+  ambientEngine.tone = tone;
+
+  const air = ctx.createBiquadFilter();
+  air.type = 'highshelf';
+  air.frequency.value = 4200;
+  air.gain.value = -2.8;
+  ambientEngine.air = air;
+
+  const compressor = ctx.createDynamicsCompressor();
+  compressor.threshold.value = -24;
+  compressor.knee.value = 18;
+  compressor.ratio.value = 2.4;
+  compressor.attack.value = 0.02;
+  compressor.release.value = 0.26;
+  ambientEngine.compressor = compressor;
+
+  ambientEngine.master.connect(tone);
+  tone.connect(air);
+  air.connect(compressor);
+  compressor.connect(ctx.destination);
   ambientEngine.ready = true;
   applyMasterVolume(1.4);
 }
@@ -886,6 +1002,79 @@ function buildSoundNode(type) {
     }
 
     // ── Fallback: gentle pink noise ───────────────────────────────────────
+    case 'spacePad': {
+      const droneA = ctx.createOscillator();
+      droneA.type = 'triangle'; droneA.frequency.value = 92;
+      const droneB = ctx.createOscillator();
+      droneB.type = 'sine'; droneB.frequency.value = 138;
+
+      const padLP = ctx.createBiquadFilter();
+      padLP.type = 'lowpass'; padLP.frequency.value = 780; padLP.Q.value = 0.7;
+      const padMix = ctx.createGain(); padMix.gain.value = 0.25;
+
+      const wobble = ctx.createOscillator();
+      wobble.type = 'sine'; wobble.frequency.value = 0.06;
+      const wobbleGain = ctx.createGain(); wobbleGain.gain.value = 120;
+      wobble.connect(wobbleGain); wobbleGain.connect(padLP.frequency);
+
+      droneA.connect(padMix);
+      droneB.connect(padMix);
+      padMix.connect(padLP); padLP.connect(gain);
+      gain.connect(ambientEngine.master);
+      if (ambientEngine.reverb) gain.connect(ambientEngine.reverb);
+
+      droneA.start(); droneB.start(); wobble.start();
+      nodes.push(droneA, droneB, wobble);
+      break;
+    }
+
+    case 'stardust': {
+      const sparkle = ctx.createBufferSource();
+      sparkle.buffer = makeWhiteNoise(ctx, 2);
+      sparkle.loop = true;
+      const sparkleHP = ctx.createBiquadFilter();
+      sparkleHP.type = 'highpass'; sparkleHP.frequency.value = 2200;
+      const sparkleBP = ctx.createBiquadFilter();
+      sparkleBP.type = 'bandpass'; sparkleBP.frequency.value = 3400; sparkleBP.Q.value = 0.8;
+      const sparkleGain = ctx.createGain(); sparkleGain.gain.value = 0.18;
+
+      const shimmer = ctx.createOscillator();
+      shimmer.type = 'sine'; shimmer.frequency.value = 0.22;
+      const shimmerGain = ctx.createGain(); shimmerGain.gain.value = 0.12;
+      shimmer.connect(shimmerGain); shimmerGain.connect(sparkleGain.gain);
+
+      sparkle.connect(sparkleHP); sparkleHP.connect(sparkleBP); sparkleBP.connect(sparkleGain); sparkleGain.connect(gain);
+      gain.connect(ambientEngine.master);
+      if (ambientEngine.reverb) gain.connect(ambientEngine.reverb);
+
+      sparkle.start(); shimmer.start();
+      nodes.push(sparkle, shimmer);
+      break;
+    }
+
+    case 'signal': {
+      const carrier = ctx.createOscillator();
+      carrier.type = 'sine'; carrier.frequency.value = 420;
+      const mod = ctx.createOscillator();
+      mod.type = 'triangle'; mod.frequency.value = 5.6;
+      const modGain = ctx.createGain(); modGain.gain.value = 24;
+      mod.connect(modGain); modGain.connect(carrier.frequency);
+
+      const pulse = ctx.createGain(); pulse.gain.value = 0.06;
+      const pulseLfo = ctx.createOscillator();
+      pulseLfo.type = 'sine'; pulseLfo.frequency.value = 0.14;
+      const pulseDepth = ctx.createGain(); pulseDepth.gain.value = 0.05;
+      pulseLfo.connect(pulseDepth); pulseDepth.connect(pulse.gain);
+
+      carrier.connect(pulse); pulse.connect(gain);
+      gain.connect(ambientEngine.master);
+      if (ambientEngine.reverb) gain.connect(ambientEngine.reverb);
+
+      carrier.start(); mod.start(); pulseLfo.start();
+      nodes.push(carrier, mod, pulseLfo);
+      break;
+    }
+
     default: {
       const src = ctx.createBufferSource();
       src.buffer = makePinkNoise(ctx, 3);
@@ -999,9 +1188,9 @@ function renderSceneStrip() {
 
 function setSceneTheme(themeId, persist = true) {
   const valid = SCENE_THEMES.some(t => t.id === themeId);
-  const chosen = valid ? themeId : 'city';
+  const chosen = valid ? themeId : 'space';
 
-  document.body.classList.remove('scene-city', 'scene-beach', 'scene-rain', 'scene-cafe', 'scene-night');
+  document.body.classList.remove('scene-space', 'scene-city', 'scene-beach', 'scene-rain', 'scene-cafe', 'scene-night');
   document.body.classList.add(`scene-${chosen}`);
 
   document.querySelectorAll('.scene-chip').forEach(btn => {
@@ -1163,42 +1352,94 @@ async function fetchPlaylistTracks(playlistId, limit = 5) {
 }
 
 async function loadSpotifyMixes() {
-  const select = document.getElementById('mixesSelect');
-  const status = document.getElementById('mixesStatus');
-  if (!select || !status) return;
+  const results = document.getElementById('playlistResults');
+  if (!results) return;
 
   const token = localStorage.getItem(TOKEN_KEY);
   if (!token) {
-    select.innerHTML = '';
-    status.textContent = 'Connect Spotify to load your playlists';
+    renderPlaylistSearchResults([], 'Connect Spotify to load your playlists');
     return;
   }
 
-  status.textContent = 'Loading your mixes...';
-  const mixes = await fetchMyMixes();
-  playlistMixCache = mixes;
-
-  if (!mixes.length) {
-    select.innerHTML = '';
-    status.textContent = 'No playlists found in your Spotify account';
-    return;
-  }
-
-  select.innerHTML = mixes.map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join('');
-  status.textContent = `${mixes.length} playlists loaded`;
+  renderPlaylistSearchResults([], 'Your playlists are ready to browse');
+  await doPlaylistSearch(true);
 }
 
-async function importSelectedMixTracks() {
-  const select = document.getElementById('mixesSelect');
-  const status = document.getElementById('mixesStatus');
-  if (!select || !select.value) {
-    showToast('Select a playlist first');
+async function searchSpotifyPlaylists(query) {
+  if (!query) return fetchMyMixes();
+  const token = await getToken();
+  if (!token) return [];
+  const params = new URLSearchParams({
+    q: query,
+    type: 'playlist',
+    limit: '8',
+  });
+  const r = await fetch(`https://api.spotify.com/v1/search?${params.toString()}`, {
+    headers: { Authorization: 'Bearer ' + token }
+  });
+  if (!r.ok) return [];
+  const d = await r.json();
+  return d.playlists?.items || [];
+}
+
+function renderPlaylistSearchResults(playlists, message) {
+  const results = document.getElementById('playlistResults');
+  if (!results) return;
+
+  const statusMarkup = `<div class="field-hint" id="mixesStatus">${esc(message || '')}</div>`;
+  if (!playlists.length) {
+    results.innerHTML = statusMarkup;
     return;
   }
 
-  const tracks = await fetchPlaylistTracks(select.value, 12);
+  results.innerHTML = statusMarkup + playlists.map((playlist) => {
+    const image = playlist.images?.[0]?.url || '';
+    const owner = playlist.owner?.display_name || 'Spotify';
+    const tracks = playlist.tracks?.total ?? '?';
+    return `<div class="playlist-result-card">
+      ${image ? `<img class="playlist-result-art" src="${image}" alt="${esc(playlist.name)}">` : '<div class="playlist-result-art playlist-result-art-fallback">♫</div>'}
+      <div class="playlist-result-copy">
+        <div class="playlist-result-name">${esc(playlist.name)}</div>
+        <div class="playlist-result-meta">${esc(owner)} • ${tracks} tracks</div>
+      </div>
+      <button class="playlist-result-btn" type="button" onclick="importPlaylistTracks('${playlist.id}')">Queue 5</button>
+    </div>`;
+  }).join('');
+}
+
+async function doPlaylistSearch(skipInputRead = false) {
+  const input = document.getElementById('playlistSearchInput');
+  const query = skipInputRead ? '' : (input?.value || '').trim();
+  const token = localStorage.getItem(TOKEN_KEY);
+
+  if (!token) {
+    renderPlaylistSearchResults([], 'Connect Spotify to search playlists');
+    return;
+  }
+
+  renderPlaylistSearchResults(playlistMixCache, query ? `Searching for "${query}"...` : 'Loading your playlists...');
+  const playlists = await searchSpotifyPlaylists(query);
+  playlistMixCache = playlists;
+
+  if (!playlists.length) {
+    renderPlaylistSearchResults([], query ? 'No playlists matched that search' : 'No playlists found in your Spotify account');
+    return;
+  }
+
+  renderPlaylistSearchResults(playlists, query ? `${playlists.length} playlists found` : `${playlists.length} playlists loaded`);
+}
+
+async function importPlaylistTracks(playlistId) {
+  if (!playlistId) {
+    showToast('Pick a playlist first');
+    return;
+  }
+
+  renderPlaylistSearchResults(playlistMixCache, 'Pulling tracks into the room queue...');
+  const tracks = await fetchPlaylistTracks(playlistId, 12);
   if (!tracks.length) {
     showToast('Could not load tracks from that playlist');
+    renderPlaylistSearchResults(playlistMixCache, 'Could not load tracks from that playlist');
     return;
   }
 
@@ -1208,7 +1449,8 @@ async function importSelectedMixTracks() {
     if (getState().queue.length >= MAX_QUEUE) break;
   }
 
-  if (status) status.textContent = `Imported ${added} tracks from mix`;
+  renderPlaylistSearchResults(playlistMixCache, `Queued ${added} tracks from that playlist`);
+  showToast(added ? `Queued ${added} playlist tracks` : 'Room queue is already full');
 }
 
 // ============================================================
@@ -1280,6 +1522,8 @@ function playTopSong() {
 // ============================================================
 function renderAll() {
   renderNowPlaying();
+  renderPlayerBar();
+  updateTransportButtons();
   renderQueue();
   renderSuggestions();
 }
@@ -1306,8 +1550,7 @@ function renderNowPlaying() {
     wrap.dataset.trackId = 'none';
     wrap.dataset.paused = '0';
     updateNowMini(null);
-    const btn = document.getElementById('jamPlayPauseBtn');
-    if (btn) btn.textContent = '⏯ Pause';
+    updateTransportButtons();
     wrap.innerHTML = `<div class="no-playing">
       <div class="no-playing-icon">🎵</div>
       <p>Nothing playing yet.<br><strong>Vote for a song</strong> or add one to the queue!</p>
@@ -1330,8 +1573,7 @@ function renderNowPlaying() {
   if (!trackChanged && pausedChanged) {
     wrap.dataset.paused = isPaused ? '1' : '0';
     updateNowMini(np);
-    const btn = document.getElementById('jamPlayPauseBtn');
-    if (btn) btn.textContent = isPaused ? '⏯ Resume' : '⏯ Pause';
+    updateTransportButtons();
     if (spotifyController) {
       try {
         if (isPaused) {
@@ -1349,8 +1591,7 @@ function renderNowPlaying() {
   wrap.dataset.trackId = np.id;
   wrap.dataset.paused  = isPaused ? '1' : '0';
   updateNowMini(np);
-  const btn = document.getElementById('jamPlayPauseBtn');
-  if (btn) btn.textContent = isPaused ? '⏯ Resume' : '⏯ Pause';
+  updateTransportButtons();
 
   if (isPaused) {
     // Mounted while paused — show placeholder, no autoplay
@@ -1438,28 +1679,32 @@ function renderPlayerBar() {
   if (!document.getElementById('playerArt')) return;
   const state = getState();
   const np = state.nowPlaying;
+  const artistName = np ? (np.artist || np.artists?.[0]?.name || 'Unknown artist') : '';
   const artEl = document.getElementById('playerArt');
   const nameEl = document.getElementById('playerTrackName');
   const artistEl = document.getElementById('playerTrackArtist');
   const curEl = document.getElementById('playerTimeCurrent');
   const totalEl = document.getElementById('playerTimeTotal');
   const fillEl = document.getElementById('playerProgressFill');
-  const toggleBtn = document.getElementById('playerToggleBtn');
 
   if (!np) {
-    artEl.innerHTML = '♪';
+    artEl.innerHTML = '<span class="player-art-fallback">♪</span>';
     nameEl.textContent = 'No active track';
     artistEl.textContent = 'Vote and play to start the room soundtrack';
     curEl.textContent = '0:00';
     totalEl.textContent = '0:00';
     fillEl.style.width = '0%';
-    if (toggleBtn) toggleBtn.textContent = 'Pause';
+    updateTransportButtons();
     return;
   }
 
-  artEl.innerHTML = np.image ? `<img src="${np.image}" alt="${esc(np.name)}">` : '🎵';
+  artEl.innerHTML = np.image
+    ? `<img src="${np.image}" alt="${esc(np.name)}">`
+    : '<span class="player-art-fallback">🎵</span>';
   nameEl.textContent = np.name;
-  artistEl.textContent = np.artist;
+  artistEl.textContent = np.isPaused
+    ? `${artistName} • paused in the lounge`
+    : `${artistName} • synced room playback`;
 
   const startedAt = np.startedAt || Date.now();
   const duration = np.durationMs || DEFAULT_TRACK_MS;
@@ -1470,7 +1715,7 @@ function renderPlayerBar() {
   curEl.textContent = formatMs(elapsed);
   totalEl.textContent = formatMs(duration);
   fillEl.style.width = `${pct}%`;
-  if (toggleBtn) toggleBtn.textContent = np.isPaused ? 'Resume' : 'Pause';
+  updateTransportButtons();
 }
 
 function scrubPlayer(event) {
@@ -1531,7 +1776,7 @@ function maybeAutoAdvanceJam() {
   if (np.isPaused) return;
 
   const hasQueuedNext = state.queue.length > 0;
-  if (!hasQueuedNext) return;
+  if (!repeatTrackEnabled && !hasQueuedNext) return;
 
   // Fallback signal: local timer elapsed full track duration.
   const startedAt = np.startedAt || 0;
@@ -1542,8 +1787,13 @@ function maybeAutoAdvanceJam() {
   if (!endedByTimer) return;
 
   autoAdvanceLock = true;
-  playTopSong();
-  showToast('Jam keeps rolling ▶ next track');
+  if (repeatTrackEnabled) {
+    jamRestartTrack();
+    showToast('Repeating current track');
+  } else {
+    playTopSong();
+    showToast('Jam keeps rolling ▶ next track');
+  }
   setTimeout(() => { autoAdvanceLock = false; }, 800);
 }
 
@@ -1581,9 +1831,7 @@ function jamTogglePlayPause() {
     showToast('Paused ⏸');
   }
 
-  // Update button immediately — don't wait for the render loop
-  const btn = document.getElementById('jamPlayPauseBtn');
-  if (btn) btn.textContent = np.isPaused ? '⏯ Resume' : '⏯ Pause';
+  updateTransportButtons();
 
   saveState(state);
   if (!applyingRemoteSync) broadcastJamSync();
@@ -1617,6 +1865,31 @@ function jamNextTrack() {
   playTopSong();
   if (!applyingRemoteSync) broadcastJamSync();
   showToast('Skipped to next track for everyone ⏭');
+}
+
+function shuffleQueue() {
+  const state = getState();
+  if (state.queue.length < 2) {
+    showToast('Add a few songs first');
+    return;
+  }
+
+  for (let i = state.queue.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [state.queue[i], state.queue[j]] = [state.queue[j], state.queue[i]];
+  }
+
+  saveState(state);
+  if (!applyingRemoteSync) broadcastJamSync();
+  renderAll();
+  showToast('Queue shuffled for the room');
+}
+
+function toggleRepeatTrack() {
+  repeatTrackEnabled = !repeatTrackEnabled;
+  saveRepeatState();
+  updateTransportButtons();
+  showToast(repeatTrackEnabled ? 'Repeat current track on' : 'Repeat current track off');
 }
 
 function getSuggestions() {
@@ -2008,9 +2281,8 @@ function jamPayload() {
     suggestions: getSuggestions(),
     theme: getCurrentTheme(),
     ambientPrefs: getAmbientPrefs(),
-    masterVolume,
-    masterMuted,
     djState,
+    repeatTrackEnabled,
   };
 }
 
@@ -2037,13 +2309,6 @@ function applyJamPayload(payload) {
     if (payload.clientId) applySharedClientId(payload.clientId, false);
     if (payload.theme) setSceneTheme(payload.theme, true);
     if (payload.ambientPrefs) localStorage.setItem(AMBIENT_PREFS_KEY, JSON.stringify(payload.ambientPrefs));
-    if (typeof payload.masterVolume === 'number') {
-      masterVolume = Math.max(0, Math.min(1, payload.masterVolume));
-    }
-    if (typeof payload.masterMuted === 'boolean') {
-      masterMuted = payload.masterMuted;
-    }
-    saveMasterAudioState();
     if (payload.djState) {
       djState = {
         enabled: !!payload.djState.enabled,
@@ -2051,15 +2316,22 @@ function applyJamPayload(payload) {
       };
       localStorage.setItem(DJ_STATE_KEY, JSON.stringify(djState));
     }
+    if (typeof payload.repeatTrackEnabled === 'boolean') {
+      repeatTrackEnabled = payload.repeatTrackEnabled;
+      localStorage.setItem(REPEAT_TRACK_KEY, repeatTrackEnabled ? '1' : '0');
+    }
   } finally {
     applyingRemoteSync = false;
   }
 
   renderAmbientMixer();
   updateMasterVolumeUI();
+  updatePlayerRangeTrack();
+  updateSpotifyVolumeUI();
   applyMasterVolume(0.08);
-  applySpotifyVolume(0); // instant mute/unmute
+  applySpotifyVolume(0);
   updateDjControls();
+  updateTransportButtons();
   renderAll();
 }
 
@@ -2199,8 +2471,7 @@ function handleSpotifyBadgeClick() {
       localStorage.removeItem(REFRESH_KEY);
       localStorage.removeItem(EXPIRY_KEY);
       playlistMixCache = [];
-      const mixes = document.getElementById('mixesSelect');
-      if (mixes) mixes.innerHTML = '';
+      renderPlaylistSearchResults([], 'Connect Spotify to search playlists');
       updateSpotifyBadge(false, false);
       showToast('Disconnected from Spotify');
     }
@@ -2223,8 +2494,7 @@ function updateSpotifyBadge(connected, demo) {
   } else {
     badge.classList.add('disconnected');
     text.textContent = 'Connect Spotify';
-    const status = document.getElementById('mixesStatus');
-    if (status) status.textContent = 'Connect Spotify to load your playlists';
+    renderPlaylistSearchResults([], 'Connect Spotify to search playlists');
   }
 }
 
@@ -2251,15 +2521,20 @@ function esc2(s) { return String(s).replace(/'/g,"\\'").replace(/"/g,'\\"').repl
 // ============================================================
 (async function init() {
   loadMasterAudioState();
+  loadSpotifyVolumeState();
+  loadRepeatState();
   updateMasterVolumeUI();
   updatePlayerRangeTrack();
+  updateSpotifyVolumeUI();
   bindMasterVolumeControls();
+  bindSpotifyVolumeControls();
+  updateTransportButtons();
 
   loadDjState();
   updateDjControls();
 
   renderSceneStrip();
-  setSceneTheme(localStorage.getItem(THEME_KEY) || 'city', false);
+  setSceneTheme(localStorage.getItem(THEME_KEY) || 'space', false);
   bindKeyboardShortcuts();
   renderAmbientMixer();
   renderSuggestions();
@@ -2326,6 +2601,7 @@ function esc2(s) { return String(s).replace(/'/g,"\\'").replace(/"/g,'\\"').repl
     maybeAutoStartFromQueue();
     maybeAutoAdvanceJam();
     runDjTick();
+    renderPlayerBar();
   }, 1000);
   // Poll for updates every 5s (fallback)
   setInterval(renderAll, 5000);
