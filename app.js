@@ -128,7 +128,6 @@ let masterVolume = 0.28;
 let masterMuted = false;
 let spotifyVolume = 0.7;
 let spotifyIframeApi = null;
-let autoPlayTimeoutId = null;
 let spotifyController = null;
 
 let djState = {
@@ -885,22 +884,8 @@ function playTopSong() {
   };
   state.queue = state.queue.filter(t => t.id !== top.id);
   saveState(state);
-  
-  // Clear any existing autoplay timeout
-  if (autoPlayTimeoutId) clearTimeout(autoPlayTimeoutId);
-  
-  // Set up timer-based autoplay for when this track finishes
-  const duration = state.nowPlaying.durationMs || DEFAULT_TRACK_MS;
-  autoPlayTimeoutId = setTimeout(() => {
-    const updated = getState();
-    if (updated.nowPlaying && updated.nowPlaying.id === top.id && !updated.nowPlaying.isPaused && updated.queue.length > 0) {
-      playTopSong();
-      showToast('▶ Next track playing');
-    }
-  }, duration);
-  
   showToast('Now playing: ' + top.name + ' ✨');
-}
+
 
 // ============================================================
 //  RENDER
@@ -1110,26 +1095,10 @@ function togglePlayerPlayback() {
     np.isPaused = false;
     np.pausedAt = null;
     showToast('Resumed ▶');
-    
-    // Restart autoplay timer when resuming
-    if (autoPlayTimeoutId) clearTimeout(autoPlayTimeoutId);
-    const duration = np.durationMs || DEFAULT_TRACK_MS;
-    const elapsedSinceStart = Date.now() - np.startedAt;
-    const remainingMs = Math.max(0, duration - elapsedSinceStart);
-    autoPlayTimeoutId = setTimeout(() => {
-      const updated = getState();
-      if (updated.nowPlaying && updated.nowPlaying.id === np.id && !updated.nowPlaying.isPaused && updated.queue.length > 0) {
-        playTopSong();
-        showToast('▶ Next track playing');
-      }
-    }, remainingMs);
   } else {
     np.isPaused = true;
     np.pausedAt = Date.now();
     showToast('Paused ❚❚');
-    
-    // Clear autoplay timer when paused
-    if (autoPlayTimeoutId) clearTimeout(autoPlayTimeoutId);
   }
 
   saveState(state);
@@ -1142,25 +1111,10 @@ function restartPlayerTrack() {
   state.nowPlaying.pausedAt = null;
   state.nowPlaying.isPaused = false;
   saveState(state);
-  
-  // Configure autoplay timer for restarted track
-  if (autoPlayTimeoutId) clearTimeout(autoPlayTimeoutId);
-  const duration = state.nowPlaying.durationMs || DEFAULT_TRACK_MS;
-  const trackId = state.nowPlaying.id;
-  autoPlayTimeoutId = setTimeout(() => {
-    const updated = getState();
-    if (updated.nowPlaying && updated.nowPlaying.id === trackId && !updated.nowPlaying.isPaused && updated.queue.length > 0) {
-      playTopSong();
-      showToast('▶ Next track playing');
-    }
-  }, duration);
-  
   showToast('Restarted track ⏮');
 }
 
 function maybeAutoAdvanceJam() {
-  // This is a fallback safety check in case timer didn't trigger
-  // (e.g., in jam sync scenarios or system lag)
   if (autoAdvanceLock) return;
 
   const state = getState();
@@ -1171,19 +1125,17 @@ function maybeAutoAdvanceJam() {
   const hasQueuedNext = state.queue.length > 0;
   if (!hasQueuedNext) return;
 
-  // Only advance if significantly past the track duration (safety margin)
+  // Fallback signal: local timer elapsed full track duration.
   const startedAt = np.startedAt || 0;
   const duration = np.durationMs || DEFAULT_TRACK_MS;
   const elapsed = Date.now() - startedAt;
-  // Use a very generous margin since timer should handle exact timing
-  const shouldAdvance = elapsed >= duration + 3000;
+  const endedByTimer = elapsed >= duration + 1200;
 
-  if (!shouldAdvance) return;
+  if (!endedByTimer) return;
 
   autoAdvanceLock = true;
-  if (autoPlayTimeoutId) clearTimeout(autoPlayTimeoutId);
   playTopSong();
-  showToast('▶ Queue advancing (fallback)');
+  showToast('Jam keeps rolling ▶ next track');
   setTimeout(() => { autoAdvanceLock = false; }, 800);
 }
 
@@ -1205,26 +1157,10 @@ function jamTogglePlayPause() {
     np.isPaused = false;
     np.pausedAt = null;
     showToast('Resumed for everyone ▶');
-    
-    // Restart autoplay timer when resuming
-    if (autoPlayTimeoutId) clearTimeout(autoPlayTimeoutId);
-    const duration = np.durationMs || DEFAULT_TRACK_MS;
-    const elapsedSinceStart = Date.now() - np.startedAt;
-    const remainingMs = Math.max(0, duration - elapsedSinceStart);
-    autoPlayTimeoutId = setTimeout(() => {
-      const updated = getState();
-      if (updated.nowPlaying && updated.nowPlaying.id === np.id && !updated.nowPlaying.isPaused && updated.queue.length > 0) {
-        playTopSong();
-        showToast('▶ Next track playing');
-      }
-    }, remainingMs);
   } else {
     np.isPaused = true;
     np.pausedAt = Date.now();
     showToast('Paused for everyone ⏸');
-    
-    // Clear autoplay timer when paused
-    if (autoPlayTimeoutId) clearTimeout(autoPlayTimeoutId);
   }
   saveState(state);
   if (!applyingRemoteSync) broadcastJamSync();
@@ -1237,19 +1173,6 @@ function jamRestartTrack() {
   state.nowPlaying.pausedAt = null;
   state.nowPlaying.isPaused = false;
   saveState(state);
-  
-  // Configure autoplay timer for restarted track
-  if (autoPlayTimeoutId) clearTimeout(autoPlayTimeoutId);
-  const duration = state.nowPlaying.durationMs || DEFAULT_TRACK_MS;
-  const trackId = state.nowPlaying.id;
-  autoPlayTimeoutId = setTimeout(() => {
-    const updated = getState();
-    if (updated.nowPlaying && updated.nowPlaying.id === trackId && !updated.nowPlaying.isPaused && updated.queue.length > 0) {
-      playTopSong();
-      showToast('▶ Next track playing');
-    }
-  }, duration);
-  
   if (!applyingRemoteSync) broadcastJamSync();
   showToast('Track restarted for everyone');
 }
@@ -1260,8 +1183,6 @@ function jamNextTrack() {
     showToast('Queue is empty');
     return;
   }
-  // Clear the autoplay timer since we're manually skipping
-  if (autoPlayTimeoutId) clearTimeout(autoPlayTimeoutId);
   playTopSong();
   if (!applyingRemoteSync) broadcastJamSync();
   showToast('Skipped to next track for everyone ⏭');
