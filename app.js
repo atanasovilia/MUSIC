@@ -362,17 +362,28 @@ function updateSpotifyVolumeUI() {
 }
 
 function applySpotifyVolume() {
-  if (!spotifyController || typeof spotifyController.setVolume !== 'function') return;
-  try {
-    spotifyController.setVolume(spotifyVolume);
-  } catch {}
+  // Spotify embed doesn't expose programmatic volume control.
+  // Instead, sync spotted volume with ambient master volume for unified control.
+  const state = getState();
+  if (!state.nowPlaying) return;
+  
+  // Apply to ambient engine as master control.
+  masterVolume = spotifyVolume;
+  saveMasterAudioState();
+  updateMasterVolumeUI();
+  applyMasterVolume(0.12);
 }
 
 function setSpotifyVolumeFromUI(value) {
   spotifyVolume = Math.max(0, Math.min(1, Number(value) / 100));
   localStorage.setItem(SPOTIFY_VOLUME_KEY, String(spotifyVolume));
   updateSpotifyVolumeUI();
-  applySpotifyVolume();
+  // Sync with ambient/master volume for unified control.
+  masterVolume = spotifyVolume;
+  saveMasterAudioState();
+  updateMasterVolumeUI();
+  resumeAmbient();
+  applyMasterVolume(0.12);
 }
 
 function destroySpotifyController() {
@@ -386,6 +397,13 @@ function destroySpotifyController() {
     updatedAt: 0,
     trackUri: '',
   };
+}
+
+function initSpotifyVolumeSync() {
+  // Sync Spotify volume slider with master ambient volume.
+  spotifyVolume = masterVolume;
+  localStorage.setItem(SPOTIFY_VOLUME_KEY, String(spotifyVolume));
+  updateSpotifyVolumeUI();
 }
 
 function onSpotifyPlaybackUpdate(event) {
@@ -1858,6 +1876,7 @@ function esc2(s) { return String(s).replace(/'/g,"\\'").replace(/"/g,'\\"').repl
   updateMasterVolumeUI();
   loadSpotifyVolumeState();
   updateSpotifyVolumeUI();
+  initSpotifyVolumeSync();
 
   loadDjState();
   updateDjControls();
