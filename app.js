@@ -343,6 +343,21 @@ function setMasterVolumeFromUI(value) {
   applySpotifyVolume(0); // instant response while dragging
 }
 
+function bindMasterVolumeControls() {
+  const volumeRange = document.getElementById('masterVolumeRange');
+  if (!volumeRange) return;
+  
+  // Listen to input events for real-time response (like dragging)
+  volumeRange.addEventListener('input', (e) => {
+    setMasterVolumeFromUI(e.target.value);
+  });
+  
+  // Also listen to change events for when user releases (ensures saved state)
+  volumeRange.addEventListener('change', (e) => {
+    setMasterVolumeFromUI(e.target.value);
+  });
+}
+
 function nudgeMasterVolume(deltaPct) {
   const next = Math.max(0, Math.min(100, Math.round(masterVolume * 100) + deltaPct));
   setMasterVolumeFromUI(next);
@@ -1913,6 +1928,7 @@ function esc2(s) { return String(s).replace(/'/g,"\\'").replace(/"/g,'\\"').repl
   loadMasterAudioState();
   updateMasterVolumeUI();
   updatePlayerRangeTrack();
+  bindMasterVolumeControls();
 
   loadDjState();
   updateDjControls();
