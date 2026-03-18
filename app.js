@@ -64,6 +64,8 @@ const DEMO_KEY    = 'lofi_demo_mode';
 const THEME_KEY   = 'lofi_scene_theme_v1';
 const SUGGESTIONS_KEY = 'lofi_shared_suggestions_v1';
 const AMBIENT_PREFS_KEY = 'lofi_ambient_prefs_v1';
+const MASTER_VOLUME_KEY = 'lofi_master_volume_v1';
+const MASTER_MUTED_KEY = 'lofi_master_muted_v1';
 const PROD_SPOTIFY_REDIRECT_URI = 'https://musicdistro.vercel.app';
 const DEFAULT_TRACK_MS = 180000;
 const MAX_QUEUE = 5;
@@ -79,29 +81,29 @@ const SCENE_THEMES = [
 
 const AMBIENT_SCENES = {
   city: [
-    { id: 'traffic', icon: '🚗', label: 'Traffic', type: 'pink-low', on: true, vol: 0.45 },
-    { id: 'rain', icon: '🌧️', label: 'Neon Rain', type: 'white-band', on: false, vol: 0.3 },
-    { id: 'wind', icon: '💨', label: 'High Wind', type: 'pink-high', on: false, vol: 0.2 },
+    { id: 'traffic', icon: '🚗', label: 'Traffic', type: 'pink-low', on: true, vol: 0.22 },
+    { id: 'rain', icon: '🌧️', label: 'Neon Rain', type: 'white-band', on: false, vol: 0.18 },
+    { id: 'wind', icon: '💨', label: 'High Wind', type: 'pink-high', on: false, vol: 0.14 },
   ],
   beach: [
-    { id: 'waves', icon: '🌊', label: 'Waves', type: 'pink-low', on: true, vol: 0.5 },
-    { id: 'wind', icon: '💨', label: 'Sea Wind', type: 'pink-high', on: true, vol: 0.2 },
-    { id: 'foam', icon: '🫧', label: 'Foam Hiss', type: 'white-band', on: false, vol: 0.2 },
+    { id: 'waves', icon: '🌊', label: 'Waves', type: 'pink-low', on: true, vol: 0.24 },
+    { id: 'wind', icon: '💨', label: 'Sea Wind', type: 'pink-high', on: true, vol: 0.14 },
+    { id: 'foam', icon: '🫧', label: 'Foam Hiss', type: 'white-band', on: false, vol: 0.14 },
   ],
   rain: [
-    { id: 'rain', icon: '🌧️', label: 'Rain', type: 'white-band', on: true, vol: 0.5 },
-    { id: 'distant', icon: '🌩️', label: 'Distant Thunder', type: 'pink-low', on: false, vol: 0.25 },
-    { id: 'room', icon: '🏠', label: 'Room Tone', type: 'pink-high', on: true, vol: 0.15 },
+    { id: 'rain', icon: '🌧️', label: 'Rain', type: 'white-band', on: true, vol: 0.24 },
+    { id: 'distant', icon: '🌩️', label: 'Distant Thunder', type: 'pink-low', on: false, vol: 0.16 },
+    { id: 'room', icon: '🏠', label: 'Room Tone', type: 'pink-high', on: true, vol: 0.12 },
   ],
   cafe: [
-    { id: 'room', icon: '☕', label: 'Cafe Room', type: 'pink-high', on: true, vol: 0.25 },
-    { id: 'steam', icon: '♨️', label: 'Steam', type: 'white-band', on: false, vol: 0.2 },
-    { id: 'street', icon: '🚕', label: 'Street', type: 'pink-low', on: false, vol: 0.2 },
+    { id: 'room', icon: '☕', label: 'Cafe Room', type: 'pink-high', on: true, vol: 0.15 },
+    { id: 'steam', icon: '♨️', label: 'Steam', type: 'white-band', on: false, vol: 0.12 },
+    { id: 'street', icon: '🚕', label: 'Street', type: 'pink-low', on: false, vol: 0.14 },
   ],
   night: [
-    { id: 'nightwind', icon: '🌬️', label: 'Night Wind', type: 'pink-high', on: true, vol: 0.2 },
-    { id: 'hush', icon: '🦗', label: 'Night Hush', type: 'white-band', on: true, vol: 0.15 },
-    { id: 'fire', icon: '🔥', label: 'Campfire', type: 'pink-low', on: false, vol: 0.2 },
+    { id: 'nightwind', icon: '🌬️', label: 'Night Wind', type: 'pink-high', on: true, vol: 0.12 },
+    { id: 'hush', icon: '🦗', label: 'Night Hush', type: 'white-band', on: true, vol: 0.1 },
+    { id: 'fire', icon: '🔥', label: 'Campfire', type: 'pink-low', on: false, vol: 0.14 },
   ],
 };
 
@@ -120,6 +122,8 @@ let jamConnections = [];
 let jamRoomCode = '';
 let jamLastTs = 0;
 let playlistMixCache = [];
+let masterVolume = 0.28;
+let masterMuted = false;
 
 let djState = {
   enabled: false,
@@ -276,6 +280,56 @@ function saveAmbientPrefs(prefs) {
   if (!applyingRemoteSync) broadcastJamSync();
 }
 
+function loadMasterAudioState() {
+  const savedVol = parseFloat(localStorage.getItem(MASTER_VOLUME_KEY) || '0.28');
+  masterVolume = Number.isFinite(savedVol) ? Math.max(0, Math.min(1, savedVol)) : 0.28;
+  masterMuted = localStorage.getItem(MASTER_MUTED_KEY) === '1';
+}
+
+function saveMasterAudioState() {
+  localStorage.setItem(MASTER_VOLUME_KEY, String(masterVolume));
+  localStorage.setItem(MASTER_MUTED_KEY, masterMuted ? '1' : '0');
+}
+
+function updateMasterVolumeUI() {
+  const range = document.getElementById('masterVolumeRange');
+  const muteBtn = document.getElementById('masterMuteBtn');
+  if (range) range.value = String(Math.round(masterVolume * 100));
+  if (muteBtn) {
+    muteBtn.classList.toggle('active', masterMuted);
+    muteBtn.textContent = masterMuted ? 'Unmute' : 'Mute';
+  }
+}
+
+function applyMasterVolume(ramp = 0.2) {
+  if (!ambientEngine.ready || !ambientEngine.master) return;
+  const target = masterMuted ? 0 : masterVolume;
+  ambientEngine.master.gain.cancelScheduledValues(ambientEngine.ctx.currentTime);
+  ambientEngine.master.gain.setTargetAtTime(target, ambientEngine.ctx.currentTime, ramp);
+}
+
+function setMasterVolumeFromUI(value) {
+  masterVolume = Math.max(0, Math.min(1, Number(value) / 100));
+  if (masterMuted && masterVolume > 0) masterMuted = false;
+  saveMasterAudioState();
+  updateMasterVolumeUI();
+  resumeAmbient();
+  applyMasterVolume(0.12);
+}
+
+function nudgeMasterVolume(deltaPct) {
+  const next = Math.max(0, Math.min(100, Math.round(masterVolume * 100) + deltaPct));
+  setMasterVolumeFromUI(next);
+}
+
+function toggleAmbientMute() {
+  masterMuted = !masterMuted;
+  saveMasterAudioState();
+  updateMasterVolumeUI();
+  resumeAmbient();
+  applyMasterVolume(0.08);
+}
+
 function getCurrentTheme() {
   const cl = Array.from(document.body.classList).find(c => c.startsWith('scene-'));
   return cl ? cl.replace('scene-', '') : 'city';
@@ -287,7 +341,7 @@ function initAmbientEngine() {
   if (!Ctx) return;
   ambientEngine.ctx = new Ctx();
   ambientEngine.master = ambientEngine.ctx.createGain();
-  ambientEngine.master.gain.value = 0.52;
+  ambientEngine.master.gain.value = 0;
 
   const reverb = ambientEngine.ctx.createConvolver();
   const length = ambientEngine.ctx.sampleRate * 2.8;
@@ -309,11 +363,13 @@ function initAmbientEngine() {
 
   ambientEngine.master.connect(ambientEngine.ctx.destination);
   ambientEngine.ready = true;
+  applyMasterVolume(1.4);
 }
 
 function resumeAmbient() {
   initAmbientEngine();
   if (ambientEngine.ctx && ambientEngine.ctx.state === 'suspended') ambientEngine.ctx.resume();
+  applyMasterVolume(0.2);
 }
 
 function noiseBuffer(seconds = 2, color = 'white') {
@@ -1312,6 +1368,8 @@ function sanitizeRoomCode(raw) {
 function roomShareUrl(code) {
   const url = new URL(window.location.href);
   url.searchParams.set('room', code);
+  const clientId = localStorage.getItem(CLIENT_KEY);
+  if (clientId) url.searchParams.set('cid', clientId);
   url.searchParams.delete('code');
   url.searchParams.delete('error');
   return url.toString();
@@ -1371,6 +1429,7 @@ function jamPayload() {
   return {
     type: 'sync',
     ts: Date.now(),
+    clientId: localStorage.getItem(CLIENT_KEY) || '',
     state: getState(),
     suggestions: getSuggestions(),
     theme: getCurrentTheme(),
@@ -1388,6 +1447,9 @@ function applyJamPayload(payload) {
   try {
     if (payload.state) localStorage.setItem(STATE_KEY, JSON.stringify(payload.state));
     if (payload.suggestions) localStorage.setItem(SUGGESTIONS_KEY, JSON.stringify(payload.suggestions));
+    if (payload.clientId && !localStorage.getItem(CLIENT_KEY)) {
+      localStorage.setItem(CLIENT_KEY, payload.clientId);
+    }
     if (payload.theme) setSceneTheme(payload.theme, true);
     if (payload.ambientPrefs) localStorage.setItem(AMBIENT_PREFS_KEY, JSON.stringify(payload.ambientPrefs));
     if (payload.djState) {
@@ -1487,6 +1549,12 @@ function startJamRoom() {
 function initializeJamFromUrl() {
   const params = new URLSearchParams(window.location.search);
   const room = sanitizeRoomCode(params.get('room'));
+  const cid = (params.get('cid') || '').trim();
+
+  if (cid && !localStorage.getItem(CLIENT_KEY)) {
+    localStorage.setItem(CLIENT_KEY, cid);
+  }
+
   if (!room) {
     updateJamOverlayFields();
     return;
@@ -1584,6 +1652,9 @@ function esc2(s) { return String(s).replace(/'/g,"\\'").replace(/"/g,'\\"').repl
 //  INIT
 // ============================================================
 (async function init() {
+  loadMasterAudioState();
+  updateMasterVolumeUI();
+
   loadDjState();
   updateDjControls();
 

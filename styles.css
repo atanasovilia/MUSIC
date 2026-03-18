@@ -710,6 +710,40 @@ header {
   max-height: calc(100vh - 230px);
 }
 
+.master-volume-controls {
+  display: grid;
+  grid-template-columns: auto 1fr auto auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.master-vol-btn,
+.master-mute-btn {
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: rgba(255,255,255,0.05);
+  color: var(--text-sub);
+  font-size: 12px;
+  padding: 7px 9px;
+  cursor: pointer;
+}
+
+.master-vol-btn:hover,
+.master-mute-btn:hover {
+  border-color: var(--border-glow);
+  color: var(--text);
+}
+
+.master-mute-btn.active {
+  color: var(--amber);
+  border-color: color-mix(in srgb, var(--amber) 40%, transparent);
+  background: color-mix(in srgb, var(--amber) 12%, transparent);
+}
+
+#masterVolumeRange {
+  width: 100%;
+}
+
 .ambient-list {
   display: flex;
   flex-direction: column;
@@ -1118,6 +1152,14 @@ header {
 
   .mixes-row {
     grid-template-columns: 1fr;
+  }
+
+  .master-volume-controls {
+    grid-template-columns: auto 1fr auto;
+  }
+
+  .master-mute-btn {
+    grid-column: 1 / -1;
   }
 
   .mixer-panel {

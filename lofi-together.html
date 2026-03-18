@@ -185,6 +185,12 @@
 
     <aside class="mixer-panel">
       <div class="panel-label">🎛 ambient mix</div>
+      <div class="master-volume-controls">
+        <button class="master-vol-btn" onclick="nudgeMasterVolume(-10)">−</button>
+        <input id="masterVolumeRange" type="range" min="0" max="100" value="28" oninput="setMasterVolumeFromUI(this.value)">
+        <button class="master-vol-btn" onclick="nudgeMasterVolume(10)">＋</button>
+        <button class="master-mute-btn" id="masterMuteBtn" onclick="toggleAmbientMute()">Mute</button>
+      </div>
       <div class="ambient-list" id="ambientList"></div>
       <div class="ambient-actions">
         <button onclick="ambientAllOff()">All Off</button>
