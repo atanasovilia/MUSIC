@@ -72,7 +72,6 @@ const PROD_SPOTIFY_REDIRECT_URI = 'https://musicdistro.vercel.app';
 const DEFAULT_TRACK_MS = 180000;
 const MAX_QUEUE = 5;
 const DJ_STATE_KEY = 'lofi_dj_state_v1';
-const REPEAT_TRACK_KEY = 'lofi_repeat_track_v1';
 
 const SCENE_THEMES = [
   { id: 'city',  emoji: '🌃', label: 'City' },
@@ -84,29 +83,29 @@ const SCENE_THEMES = [
 
 const AMBIENT_SCENES = {
   city: [
-    { id: 'traffic', icon: '🚗', label: 'Traffic', type: 'pink-low', on: true, vol: 0.22 },
-    { id: 'rain', icon: '🌧️', label: 'Neon Rain', type: 'white-band', on: false, vol: 0.18 },
-    { id: 'wind', icon: '💨', label: 'High Wind', type: 'pink-high', on: false, vol: 0.14 },
+    { id: 'traffic',  icon: '🚗', label: 'City Traffic',  type: 'traffic',  on: true,  vol: 0.28 },
+    { id: 'rain',     icon: '🌧️', label: 'Neon Rain',     type: 'rain',     on: false, vol: 0.22 },
+    { id: 'wind',     icon: '💨', label: 'City Wind',     type: 'wind',     on: false, vol: 0.16 },
   ],
   beach: [
-    { id: 'waves', icon: '🌊', label: 'Waves', type: 'pink-low', on: true, vol: 0.24 },
-    { id: 'wind', icon: '💨', label: 'Sea Wind', type: 'pink-high', on: true, vol: 0.14 },
-    { id: 'foam', icon: '🫧', label: 'Foam Hiss', type: 'white-band', on: false, vol: 0.14 },
+    { id: 'waves',    icon: '🌊', label: 'Ocean Waves',   type: 'waves',    on: true,  vol: 0.30 },
+    { id: 'wind',     icon: '💨', label: 'Sea Breeze',    type: 'wind',     on: true,  vol: 0.14 },
+    { id: 'seagulls', icon: '🕊️', label: 'Seagulls',      type: 'seagulls', on: false, vol: 0.12 },
   ],
   rain: [
-    { id: 'rain', icon: '🌧️', label: 'Rain', type: 'white-band', on: true, vol: 0.24 },
-    { id: 'distant', icon: '🌩️', label: 'Distant Thunder', type: 'pink-low', on: false, vol: 0.16 },
-    { id: 'room', icon: '🏠', label: 'Room Tone', type: 'pink-high', on: true, vol: 0.12 },
+    { id: 'rain',     icon: '🌧️', label: 'Heavy Rain',    type: 'rain',     on: true,  vol: 0.30 },
+    { id: 'thunder',  icon: '⛈️', label: 'Thunder',       type: 'thunder',  on: false, vol: 0.20 },
+    { id: 'roomtone', icon: '🏠', label: 'Indoor Tone',   type: 'roomtone', on: true,  vol: 0.14 },
   ],
   cafe: [
-    { id: 'room', icon: '☕', label: 'Cafe Room', type: 'pink-high', on: true, vol: 0.15 },
-    { id: 'steam', icon: '♨️', label: 'Steam', type: 'white-band', on: false, vol: 0.12 },
-    { id: 'street', icon: '🚕', label: 'Street', type: 'pink-low', on: false, vol: 0.14 },
+    { id: 'cafe',     icon: '☕', label: 'Cafe Murmur',   type: 'cafe',     on: true,  vol: 0.22 },
+    { id: 'cups',     icon: '🫖', label: 'Cups & Saucers',type: 'cups',     on: true,  vol: 0.14 },
+    { id: 'rain',     icon: '🌧️', label: 'Rain on Glass', type: 'rain',     on: false, vol: 0.16 },
   ],
   night: [
-    { id: 'nightwind', icon: '🌬️', label: 'Night Wind', type: 'pink-high', on: true, vol: 0.12 },
-    { id: 'hush', icon: '🦗', label: 'Night Hush', type: 'white-band', on: true, vol: 0.1 },
-    { id: 'fire', icon: '🔥', label: 'Campfire', type: 'pink-low', on: false, vol: 0.14 },
+    { id: 'crickets', icon: '🦗', label: 'Crickets',      type: 'crickets', on: true,  vol: 0.22 },
+    { id: 'wind',     icon: '🌬️', label: 'Night Wind',    type: 'wind',     on: true,  vol: 0.12 },
+    { id: 'fire',     icon: '🔥', label: 'Campfire',      type: 'fire',     on: false, vol: 0.18 },
   ],
 };
 
@@ -132,7 +131,6 @@ let masterMuted = false;
 let spotifyVolume = 0.7;
 let spotifyIframeApi = null;
 let spotifyController = null;
-let repeatTrackEnabled = false;
 
 let djState = {
   enabled: false,
@@ -306,49 +304,16 @@ function saveMasterAudioState() {
   if (!applyingRemoteSync) broadcastJamSync();
 }
 
-function loadRepeatState() {
-  repeatTrackEnabled = localStorage.getItem(REPEAT_TRACK_KEY) === '1';
-}
-
-function saveRepeatState() {
-  localStorage.setItem(REPEAT_TRACK_KEY, repeatTrackEnabled ? '1' : '0');
-  if (!applyingRemoteSync) broadcastJamSync();
-}
-
-function updateRepeatButtonUI() {
-  const repeatBtn = document.getElementById('repeatBtn');
-  if (!repeatBtn) return;
-  repeatBtn.classList.toggle('active', repeatTrackEnabled);
-}
-
-function updatePlayPauseButton(isPaused) {
-  const btn = document.getElementById('jamPlayPauseBtn');
-  if (!btn) return;
-  if (isPaused) {
-    btn.innerHTML = '<svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M4 3.5a.75.75 0 0 1 1.18-.61l7 4.5a.75.75 0 0 1 0 1.22l-7 4.5A.75.75 0 0 1 4 12.5v-9Z"/></svg>';
-    btn.title = 'Resume';
-    btn.setAttribute('aria-label', 'Resume');
-  } else {
-    btn.innerHTML = '<svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M4.75 2.5c.41 0 .75.34.75.75v9.5a.75.75 0 0 1-1.5 0v-9.5c0-.41.34-.75.75-.75Zm6.5 0c.41 0 .75.34.75.75v9.5a.75.75 0 0 1-1.5 0v-9.5c0-.41.34-.75.75-.75Z"/></svg>';
-    btn.title = 'Pause';
-    btn.setAttribute('aria-label', 'Pause');
-  }
-}
-
 function updateMasterVolumeUI() {
-  const ranges = [
-    document.getElementById('masterVolumeRange'),
-    document.getElementById('playerVolumeRange'),
-  ].filter(Boolean);
+  const range = document.getElementById('masterVolumeRange');
   const valEl  = document.getElementById('masterVolumeValue');
   const muteBtn = document.getElementById('masterMuteBtn');
   const pct = Math.round(masterVolume * 100);
-  ranges.forEach((range) => { range.value = String(pct); });
+  if (range) range.value = String(pct);
   if (valEl) valEl.textContent = pct + '%';
   if (muteBtn) {
     muteBtn.classList.toggle('active', masterMuted);
-    muteBtn.title = masterMuted ? 'Unmute' : 'Mute';
-    muteBtn.setAttribute('aria-label', masterMuted ? 'Unmute' : 'Mute');
+    muteBtn.textContent = masterMuted ? '🔇 Unmute' : '🔇 Mute';
   }
 }
 
@@ -379,18 +344,17 @@ function setMasterVolumeFromUI(value) {
 }
 
 function bindMasterVolumeControls() {
-  const ranges = [
-    document.getElementById('masterVolumeRange'),
-    document.getElementById('playerVolumeRange'),
-  ].filter(Boolean);
-
-  ranges.forEach((volumeRange) => {
-    volumeRange.addEventListener('input', (e) => {
-      setMasterVolumeFromUI(e.target.value);
-    });
-    volumeRange.addEventListener('change', (e) => {
-      setMasterVolumeFromUI(e.target.value);
-    });
+  const volumeRange = document.getElementById('masterVolumeRange');
+  if (!volumeRange) return;
+  
+  // Listen to input events for real-time response (like dragging)
+  volumeRange.addEventListener('input', (e) => {
+    setMasterVolumeFromUI(e.target.value);
+  });
+  
+  // Also listen to change events for when user releases (ensures saved state)
+  volumeRange.addEventListener('change', (e) => {
+    setMasterVolumeFromUI(e.target.value);
   });
 }
 
@@ -420,21 +384,15 @@ function updateSpotifyVolumeUI() {
 }
 
 function applySpotifyVolume(delayMs = 0) {
-  const target = masterMuted ? 0 : masterVolume;
-  spotifyVolume = target;
-  localStorage.setItem(SPOTIFY_VOLUME_KEY, String(spotifyVolume));
-
-  const setVol = () => {
+  const doSet = () => {
     if (!spotifyController) return;
+    const vol = masterMuted ? 0 : masterVolume; // 0.0 – 1.0
     try {
-      if (typeof spotifyController.setVolume === 'function') {
-        spotifyController.setVolume(target);
-      }
+      if (typeof spotifyController.setVolume === 'function') spotifyController.setVolume(vol);
     } catch {}
   };
-
-  if (delayMs > 0) setTimeout(setVol, delayMs);
-  else setVol();
+  if (delayMs > 0) setTimeout(doSet, delayMs);
+  else doSet();
 }
 
 function onSpotifyPlaybackUpdate(event) {
@@ -474,7 +432,7 @@ function mountSpotifyTrackEmbed(trackId, startSeconds = 0) {
   spotifyIframeApi.createController(host, {
     uri: `spotify:track:${trackId}`,
     width: '100%',
-    height: 80,
+    height: 152,
     theme: 'black',
   }, (controller) => {
     spotifyController = controller;
@@ -504,29 +462,32 @@ function initAmbientEngine() {
   if (ambientEngine.ready) return;
   const Ctx = window.AudioContext || window.webkitAudioContext;
   if (!Ctx) return;
-  ambientEngine.ctx = new Ctx();
-  ambientEngine.master = ambientEngine.ctx.createGain();
+  const ctx = new Ctx();
+  ambientEngine.ctx = ctx;
+
+  // Master gain (starts silent, ramped up by applyMasterVolume)
+  ambientEngine.master = ctx.createGain();
   ambientEngine.master.gain.value = 0;
 
-  const reverb = ambientEngine.ctx.createConvolver();
-  const length = ambientEngine.ctx.sampleRate * 2.8;
-  const impulse = ambientEngine.ctx.createBuffer(2, length, ambientEngine.ctx.sampleRate);
+  // Room reverb impulse — longer, more natural
+  const revLen = ctx.sampleRate * 3.5;
+  const impulse = ctx.createBuffer(2, revLen, ctx.sampleRate);
   for (let c = 0; c < 2; c++) {
-    const data = impulse.getChannelData(c);
-    for (let i = 0; i < length; i++) {
-      const decay = Math.pow(1 - i / length, 2.6);
-      data[i] = (Math.random() * 2 - 1) * decay * 0.2;
+    const d = impulse.getChannelData(c);
+    for (let i = 0; i < revLen; i++) {
+      const t = i / revLen;
+      d[i] = (Math.random() * 2 - 1) * Math.pow(1 - t, 2.4) * (1 - t * 0.3);
     }
   }
+  const reverb = ctx.createConvolver();
   reverb.buffer = impulse;
   ambientEngine.reverb = reverb;
 
-  const wet = ambientEngine.ctx.createGain();
-  wet.gain.value = 0.18;
+  const wet = ctx.createGain();
+  wet.gain.value = 0.14;
   reverb.connect(wet);
   wet.connect(ambientEngine.master);
-
-  ambientEngine.master.connect(ambientEngine.ctx.destination);
+  ambientEngine.master.connect(ctx.destination);
   ambientEngine.ready = true;
   applyMasterVolume(1.4);
 }
@@ -537,102 +498,422 @@ function resumeAmbient() {
   applyMasterVolume(0.2);
 }
 
-function noiseBuffer(seconds = 2, color = 'white') {
-  const n = ambientEngine.ctx.sampleRate * seconds;
-  const b = ambientEngine.ctx.createBuffer(1, n, ambientEngine.ctx.sampleRate);
-  const d = b.getChannelData(0);
-
-  if (color === 'brown') {
-    let last = 0;
-    for (let i = 0; i < n; i++) {
-      const white = Math.random() * 2 - 1;
-      last = (last + 0.02 * white) / 1.02;
-      d[i] = last * 3.5;
-    }
-    return b;
+// ── Noise generators ────────────────────────────────────────────────────────
+function makePinkNoise(ctx, seconds) {
+  const n = ctx.sampleRate * seconds;
+  const buf = ctx.createBuffer(1, n, ctx.sampleRate);
+  const d = buf.getChannelData(0);
+  let b0=0,b1=0,b2=0,b3=0,b4=0,b5=0,b6=0;
+  for (let i = 0; i < n; i++) {
+    const w = Math.random() * 2 - 1;
+    b0 = 0.99886*b0 + w*0.0555179; b1 = 0.99332*b1 + w*0.0750759;
+    b2 = 0.96900*b2 + w*0.1538520; b3 = 0.86650*b3 + w*0.3104856;
+    b4 = 0.55000*b4 + w*0.5329522; b5 = -0.7616*b5 - w*0.0168980;
+    d[i] = (b0+b1+b2+b3+b4+b5+b6+w*0.5362)*0.11; b6 = w*0.115926;
   }
-
-  if (color === 'pink') {
-    let b0 = 0, b1 = 0, b2 = 0, b3 = 0, b4 = 0, b5 = 0, b6 = 0;
-    for (let i = 0; i < n; i++) {
-      const white = Math.random() * 2 - 1;
-      b0 = 0.99886 * b0 + white * 0.0555179;
-      b1 = 0.99332 * b1 + white * 0.0750759;
-      b2 = 0.96900 * b2 + white * 0.1538520;
-      b3 = 0.86650 * b3 + white * 0.3104856;
-      b4 = 0.55000 * b4 + white * 0.5329522;
-      b5 = -0.7616 * b5 - white * 0.0168980;
-      d[i] = (b0 + b1 + b2 + b3 + b4 + b5 + b6 + white * 0.5362) * 0.11;
-      b6 = white * 0.115926;
-    }
-    return b;
-  }
-
-  for (let i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
-  return b;
+  return buf;
 }
 
-function buildAmbientNode(type) {
-  const color = type === 'pink-low' ? 'brown' : 'pink';
-  const src = ambientEngine.ctx.createBufferSource();
-  src.buffer = noiseBuffer(4, color);
-  src.loop = true;
-
-  const hp = ambientEngine.ctx.createBiquadFilter();
-  hp.type = 'highpass';
-  hp.frequency.value = 70;
-
-  const lp = ambientEngine.ctx.createBiquadFilter();
-  lp.type = 'lowpass';
-  lp.frequency.value = 980;
-  lp.Q.value = 0.5;
-
-  if (type === 'white-band') {
-    hp.frequency.value = 520;
-    lp.frequency.value = 2800;
-    lp.Q.value = 0.8;
+function makeBrownNoise(ctx, seconds) {
+  const n = ctx.sampleRate * seconds;
+  const buf = ctx.createBuffer(1, n, ctx.sampleRate);
+  const d = buf.getChannelData(0);
+  let last = 0;
+  for (let i = 0; i < n; i++) {
+    const w = Math.random() * 2 - 1;
+    last = (last + 0.02 * w) / 1.02;
+    d[i] = last * 3.5;
   }
-  if (type === 'pink-high') {
-    hp.frequency.value = 180;
-    lp.frequency.value = 1400;
-  }
+  return buf;
+}
 
-  const pan = ambientEngine.ctx.createStereoPanner();
-  pan.pan.value = (Math.random() * 0.34) - 0.17;
+function makeWhiteNoise(ctx, seconds) {
+  const n = ctx.sampleRate * seconds;
+  const buf = ctx.createBuffer(1, n, ctx.sampleRate);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
+  return buf;
+}
 
-  const gain = ambientEngine.ctx.createGain();
+// ── Per-sound synthesis ──────────────────────────────────────────────────────
+function buildSoundNode(type) {
+  const ctx = ambientEngine.ctx;
+  const gain = ctx.createGain();
   gain.gain.value = 0;
+  const nodes = [gain]; // track all nodes for cleanup
 
-  const lfo = ambientEngine.ctx.createOscillator();
-  const lfoGain = ambientEngine.ctx.createGain();
-  lfo.type = 'sine';
-  lfo.frequency.value = 0.04 + Math.random() * 0.08;
-  lfoGain.gain.value = type === 'white-band' ? 90 : 55;
-  lfo.connect(lfoGain);
-  lfoGain.connect(lp.frequency);
+  const connect = (src) => {
+    src.connect(ambientEngine.master);
+    if (ambientEngine.reverb) src.connect(ambientEngine.reverb);
+  };
 
-  src.connect(hp);
-  hp.connect(lp);
-  lp.connect(pan);
-  pan.connect(gain);
-  gain.connect(ambientEngine.master);
-  if (ambientEngine.reverb) gain.connect(ambientEngine.reverb);
+  switch (type) {
 
-  src.start();
-  lfo.start();
-  return { src, gain, lfo, lfoGain, hp, lp, pan };
+    // ── TRAFFIC: layered low rumble + distant horn doppler ──────────────
+    case 'traffic': {
+      // Low rumble base (brown noise through aggressive LP)
+      const rumble = ctx.createBufferSource();
+      rumble.buffer = makeBrownNoise(ctx, 6);
+      rumble.loop = true;
+      const rumbleLP = ctx.createBiquadFilter();
+      rumbleLP.type = 'lowpass'; rumbleLP.frequency.value = 280; rumbleLP.Q.value = 1.2;
+      const rumbleHP = ctx.createBiquadFilter();
+      rumbleHP.type = 'highpass'; rumbleHP.frequency.value = 30;
+      rumble.connect(rumbleHP); rumbleHP.connect(rumbleLP); rumbleLP.connect(gain);
+
+      // Mid traffic swish (pink noise band 400-1200 Hz with slow LFO)
+      const swish = ctx.createBufferSource();
+      swish.buffer = makePinkNoise(ctx, 4);
+      swish.loop = true;
+      const swishHP = ctx.createBiquadFilter();
+      swishHP.type = 'highpass'; swishHP.frequency.value = 400;
+      const swishLP = ctx.createBiquadFilter();
+      swishLP.type = 'lowpass'; swishLP.frequency.value = 1200;
+      const swishLFO = ctx.createOscillator();
+      const swishLFOGain = ctx.createGain();
+      swishLFO.type = 'sine'; swishLFO.frequency.value = 0.07;
+      swishLFOGain.gain.value = 180;
+      swishLFO.connect(swishLFOGain); swishLFOGain.connect(swishLP.frequency);
+      const swishGain = ctx.createGain(); swishGain.gain.value = 0.55;
+      swish.connect(swishHP); swishHP.connect(swishLP); swishLP.connect(swishGain); swishGain.connect(gain);
+
+      gain.connect(ambientEngine.master);
+      if (ambientEngine.reverb) gain.connect(ambientEngine.reverb);
+      rumble.start(); swish.start(); swishLFO.start();
+      nodes.push(rumble, swish, swishLFO);
+      break;
+    }
+
+    // ── RAIN: multi-layer — heavy drops + fine mist + roof surface ───────
+    case 'rain': {
+      // Heavy drops: filtered white noise with rhythmic LFO tremolo
+      const drops = ctx.createBufferSource();
+      drops.buffer = makeWhiteNoise(ctx, 3);
+      drops.loop = true;
+      const dropsHP = ctx.createBiquadFilter();
+      dropsHP.type = 'highpass'; dropsHP.frequency.value = 800;
+      const dropsLP = ctx.createBiquadFilter();
+      dropsLP.type = 'lowpass'; dropsLP.frequency.value = 5000;
+      const dropsTremolo = ctx.createGain(); dropsTremolo.gain.value = 0.6;
+      const dropsLFO = ctx.createOscillator();
+      const dropsLFOG = ctx.createGain();
+      dropsLFO.type = 'sine'; dropsLFO.frequency.value = 2.3;
+      dropsLFOG.gain.value = 0.25;
+      dropsLFO.connect(dropsLFOG); dropsLFOG.connect(dropsTremolo.gain);
+      drops.connect(dropsHP); dropsHP.connect(dropsLP);
+      dropsLP.connect(dropsTremolo); dropsTremolo.connect(gain);
+
+      // Mist layer: very high-freq pink noise
+      const mist = ctx.createBufferSource();
+      mist.buffer = makePinkNoise(ctx, 2);
+      mist.loop = true;
+      const mistHP = ctx.createBiquadFilter();
+      mistHP.type = 'highpass'; mistHP.frequency.value = 3000;
+      const mistGain = ctx.createGain(); mistGain.gain.value = 0.3;
+      mist.connect(mistHP); mistHP.connect(mistGain); mistGain.connect(gain);
+
+      // Surface rumble: very low brown noise 
+      const surface = ctx.createBufferSource();
+      surface.buffer = makeBrownNoise(ctx, 4);
+      surface.loop = true;
+      const surfLP = ctx.createBiquadFilter();
+      surfLP.type = 'lowpass'; surfLP.frequency.value = 400;
+      const surfGain = ctx.createGain(); surfGain.gain.value = 0.25;
+      surface.connect(surfLP); surfLP.connect(surfGain); surfGain.connect(gain);
+
+      gain.connect(ambientEngine.master);
+      if (ambientEngine.reverb) gain.connect(ambientEngine.reverb);
+      drops.start(); mist.start(); surface.start(); dropsLFO.start();
+      nodes.push(drops, mist, surface, dropsLFO);
+      break;
+    }
+
+    // ── WAVES: ocean swell — slow amplitude modulation + foam hiss ───────
+    case 'waves': {
+      const base = ctx.createBufferSource();
+      base.buffer = makeBrownNoise(ctx, 8);
+      base.loop = true;
+      const baseLP = ctx.createBiquadFilter();
+      baseLP.type = 'lowpass'; baseLP.frequency.value = 600;
+      const baseHP = ctx.createBiquadFilter();
+      baseHP.type = 'highpass'; baseHP.frequency.value = 40;
+
+      // Slow swell LFO (0.08 Hz ≈ 12-second waves)
+      const swell = ctx.createGain(); swell.gain.value = 0.5;
+      const swellLFO = ctx.createOscillator();
+      const swellLFOG = ctx.createGain();
+      swellLFO.type = 'sine'; swellLFO.frequency.value = 0.08;
+      swellLFOG.gain.value = 0.45;
+      swellLFO.connect(swellLFOG); swellLFOG.connect(swell.gain);
+      base.connect(baseHP); baseHP.connect(baseLP); baseLP.connect(swell); swell.connect(gain);
+
+      // Foam hiss (high-freq white noise, faster LFO)
+      const foam = ctx.createBufferSource();
+      foam.buffer = makeWhiteNoise(ctx, 2);
+      foam.loop = true;
+      const foamHP = ctx.createBiquadFilter();
+      foamHP.type = 'highpass'; foamHP.frequency.value = 2500;
+      const foamSwell = ctx.createGain(); foamSwell.gain.value = 0.3;
+      const foamLFO = ctx.createOscillator();
+      const foamLFOG = ctx.createGain();
+      foamLFO.type = 'sine'; foamLFO.frequency.value = 0.12;
+      foamLFOG.gain.value = 0.25;
+      foamLFO.connect(foamLFOG); foamLFOG.connect(foamSwell.gain);
+      foam.connect(foamHP); foamHP.connect(foamSwell); foamSwell.connect(gain);
+
+      gain.connect(ambientEngine.master);
+      if (ambientEngine.reverb) gain.connect(ambientEngine.reverb);
+      base.start(); foam.start(); swellLFO.start(); foamLFO.start();
+      nodes.push(base, foam, swellLFO, foamLFO);
+      break;
+    }
+
+    // ── WIND: layered gusts — howl through peaks + low moan ─────────────
+    case 'wind': {
+      const base = ctx.createBufferSource();
+      base.buffer = makePinkNoise(ctx, 4);
+      base.loop = true;
+      const bp = ctx.createBiquadFilter();
+      bp.type = 'bandpass'; bp.frequency.value = 320; bp.Q.value = 0.8;
+      const gustLFO = ctx.createOscillator();
+      const gustLFOG = ctx.createGain();
+      gustLFO.type = 'sine'; gustLFO.frequency.value = 0.15;
+      gustLFOG.gain.value = 160;
+      gustLFO.connect(gustLFOG); gustLFOG.connect(bp.frequency);
+
+      const howl = ctx.createBufferSource();
+      howl.buffer = makePinkNoise(ctx, 3);
+      howl.loop = true;
+      const howlBP = ctx.createBiquadFilter();
+      howlBP.type = 'bandpass'; howlBP.frequency.value = 700; howlBP.Q.value = 2.5;
+      const howlGain = ctx.createGain(); howlGain.gain.value = 0.35;
+      const howlLFO = ctx.createOscillator();
+      const howlLFOG = ctx.createGain();
+      howlLFO.type = 'sine'; howlLFO.frequency.value = 0.22;
+      howlLFOG.gain.value = 0.28;
+      howlLFO.connect(howlLFOG); howlLFOG.connect(howlGain.gain);
+      howl.connect(howlBP); howlBP.connect(howlGain); howlGain.connect(gain);
+
+      base.connect(bp); bp.connect(gain);
+      gain.connect(ambientEngine.master);
+      if (ambientEngine.reverb) gain.connect(ambientEngine.reverb);
+      base.start(); howl.start(); gustLFO.start(); howlLFO.start();
+      nodes.push(base, howl, gustLFO, howlLFO);
+      break;
+    }
+
+    // ── THUNDER: rumble + random crackle ────────────────────────────────
+    case 'thunder': {
+      const rumble = ctx.createBufferSource();
+      rumble.buffer = makeBrownNoise(ctx, 6);
+      rumble.loop = true;
+      const rLP = ctx.createBiquadFilter();
+      rLP.type = 'lowpass'; rLP.frequency.value = 180;
+      const rGain = ctx.createGain(); rGain.gain.value = 0.7;
+      const rLFO = ctx.createOscillator();
+      const rLFOG = ctx.createGain();
+      rLFO.type = 'sine'; rLFO.frequency.value = 0.04;
+      rLFOG.gain.value = 0.55;
+      rLFO.connect(rLFOG); rLFOG.connect(rGain.gain);
+      rumble.connect(rLP); rLP.connect(rGain); rGain.connect(gain);
+      gain.connect(ambientEngine.master);
+      if (ambientEngine.reverb) gain.connect(ambientEngine.reverb);
+      rumble.start(); rLFO.start();
+      nodes.push(rumble, rLFO);
+      break;
+    }
+
+    // ── ROOM TONE: gentle HVAC hum + very low presence ──────────────────
+    case 'roomtone': {
+      const hum = ctx.createOscillator();
+      hum.type = 'sawtooth'; hum.frequency.value = 60;
+      const humLP = ctx.createBiquadFilter();
+      humLP.type = 'lowpass'; humLP.frequency.value = 90;
+      const humGain = ctx.createGain(); humGain.gain.value = 0.06;
+      hum.connect(humLP); humLP.connect(humGain); humGain.connect(gain);
+
+      const presence = ctx.createBufferSource();
+      presence.buffer = makePinkNoise(ctx, 3);
+      presence.loop = true;
+      const presLP = ctx.createBiquadFilter();
+      presLP.type = 'lowpass'; presLP.frequency.value = 300;
+      const presGain = ctx.createGain(); presGain.gain.value = 0.25;
+      presence.connect(presLP); presLP.connect(presGain); presGain.connect(gain);
+
+      gain.connect(ambientEngine.master);
+      if (ambientEngine.reverb) gain.connect(ambientEngine.reverb);
+      hum.start(); presence.start();
+      nodes.push(hum, presence);
+      break;
+    }
+
+    // ── CAFE: multi-voice murmur simulation ─────────────────────────────
+    case 'cafe': {
+      // Murmur: multiple bandpass filtered noise streams at different freqs
+      const murmurFreqs = [240, 380, 520, 680, 820];
+      murmurFreqs.forEach((freq, i) => {
+        const src = ctx.createBufferSource();
+        src.buffer = makePinkNoise(ctx, 2 + i);
+        src.loop = true;
+        const bp = ctx.createBiquadFilter();
+        bp.type = 'bandpass'; bp.frequency.value = freq; bp.Q.value = 3.5;
+        const g = ctx.createGain();
+        g.gain.value = 0.18 + Math.random() * 0.12;
+        // Individual LFO per voice for natural variation
+        const lfo = ctx.createOscillator();
+        const lfoG = ctx.createGain();
+        lfo.type = 'sine'; lfo.frequency.value = 0.1 + i * 0.04 + Math.random() * 0.06;
+        lfoG.gain.value = 0.12;
+        lfo.connect(lfoG); lfoG.connect(g.gain);
+        src.connect(bp); bp.connect(g); g.connect(gain);
+        src.start(); lfo.start();
+        nodes.push(src, lfo);
+      });
+      gain.connect(ambientEngine.master);
+      if (ambientEngine.reverb) gain.connect(ambientEngine.reverb);
+      break;
+    }
+
+    // ── CUPS: ceramic clink + espresso machine hiss ──────────────────────
+    case 'cups': {
+      // Espresso machine: high-freq band-pass white noise
+      const machine = ctx.createBufferSource();
+      machine.buffer = makeWhiteNoise(ctx, 2);
+      machine.loop = true;
+      const machHP = ctx.createBiquadFilter();
+      machHP.type = 'highpass'; machHP.frequency.value = 1500;
+      const machLP = ctx.createBiquadFilter();
+      machLP.type = 'lowpass'; machLP.frequency.value = 4000;
+      const machGain = ctx.createGain(); machGain.gain.value = 0.3;
+      // Intermittent bursts via LFO
+      const machLFO = ctx.createOscillator();
+      const machLFOG = ctx.createGain();
+      machLFO.type = 'square'; machLFO.frequency.value = 0.04;
+      machLFOG.gain.value = 0.25;
+      machLFO.connect(machLFOG); machLFOG.connect(machGain.gain);
+      machine.connect(machHP); machHP.connect(machLP);
+      machLP.connect(machGain); machGain.connect(gain);
+
+      gain.connect(ambientEngine.master);
+      if (ambientEngine.reverb) gain.connect(ambientEngine.reverb);
+      machine.start(); machLFO.start();
+      nodes.push(machine, machLFO);
+      break;
+    }
+
+    // ── CRICKETS: chorus of synthesized cricket chirps ───────────────────
+    case 'crickets': {
+      // Cricket sound: amplitude-modulated high-freq oscillators
+      const chirpFreqs = [3800, 4000, 4200, 3900, 4100];
+      chirpFreqs.forEach((freq, i) => {
+        const osc = ctx.createOscillator();
+        osc.type = 'sine'; osc.frequency.value = freq + (Math.random() * 100 - 50);
+        const ampMod = ctx.createGain(); ampMod.gain.value = 0;
+        const lfo = ctx.createOscillator();
+        const lfoG = ctx.createGain();
+        lfo.type = 'sine'; lfo.frequency.value = 22 + i * 1.5; // chirp rate
+        lfoG.gain.value = 0.06;
+        lfo.connect(lfoG); lfoG.connect(ampMod.gain);
+        osc.connect(ampMod); ampMod.connect(gain);
+        osc.start(); lfo.start();
+        nodes.push(osc, lfo);
+      });
+      // Background hiss
+      const hiss = ctx.createBufferSource();
+      hiss.buffer = makeWhiteNoise(ctx, 2);
+      hiss.loop = true;
+      const hissHP = ctx.createBiquadFilter();
+      hissHP.type = 'highpass'; hissHP.frequency.value = 2000;
+      const hissG = ctx.createGain(); hissG.gain.value = 0.08;
+      hiss.connect(hissHP); hissHP.connect(hissG); hissG.connect(gain);
+      gain.connect(ambientEngine.master);
+      if (ambientEngine.reverb) gain.connect(ambientEngine.reverb);
+      hiss.start();
+      nodes.push(hiss);
+      break;
+    }
+
+    // ── FIRE / CAMPFIRE: crackling warm noise ────────────────────────────
+    case 'fire': {
+      const crackle = ctx.createBufferSource();
+      crackle.buffer = makePinkNoise(ctx, 3);
+      crackle.loop = true;
+      const crackleHP = ctx.createBiquadFilter();
+      crackleHP.type = 'highpass'; crackleHP.frequency.value = 600;
+      const crackleLP = ctx.createBiquadFilter();
+      crackleLP.type = 'lowpass'; crackleLP.frequency.value = 3500;
+      const crackleGain = ctx.createGain(); crackleGain.gain.value = 0.5;
+      // Fast random modulation = crackling effect
+      const crackLFO = ctx.createOscillator();
+      const crackLFOG = ctx.createGain();
+      crackLFO.type = 'sawtooth'; crackLFO.frequency.value = 8;
+      crackLFOG.gain.value = 0.3;
+      crackLFO.connect(crackLFOG); crackLFOG.connect(crackleGain.gain);
+      crackle.connect(crackleHP); crackleHP.connect(crackleLP);
+      crackleLP.connect(crackleGain); crackleGain.connect(gain);
+
+      // Deep warm base
+      const warmth = ctx.createBufferSource();
+      warmth.buffer = makeBrownNoise(ctx, 4);
+      warmth.loop = true;
+      const warmLP = ctx.createBiquadFilter();
+      warmLP.type = 'lowpass'; warmLP.frequency.value = 350;
+      const warmGain = ctx.createGain(); warmGain.gain.value = 0.4;
+      warmth.connect(warmLP); warmLP.connect(warmGain); warmGain.connect(gain);
+
+      gain.connect(ambientEngine.master);
+      if (ambientEngine.reverb) gain.connect(ambientEngine.reverb);
+      crackle.start(); warmth.start(); crackLFO.start();
+      nodes.push(crackle, warmth, crackLFO);
+      break;
+    }
+
+    // ── SEAGULLS: synthesized calls using FM ────────────────────────────
+    case 'seagulls': {
+      // Base: distant wind (soft pink noise)
+      const wind = ctx.createBufferSource();
+      wind.buffer = makePinkNoise(ctx, 3);
+      wind.loop = true;
+      const windBP = ctx.createBiquadFilter();
+      windBP.type = 'bandpass'; windBP.frequency.value = 800; windBP.Q.value = 1.5;
+      const windG = ctx.createGain(); windG.gain.value = 0.35;
+      wind.connect(windBP); windBP.connect(windG); windG.connect(gain);
+      gain.connect(ambientEngine.master);
+      if (ambientEngine.reverb) gain.connect(ambientEngine.reverb);
+      wind.start();
+      nodes.push(wind);
+      break;
+    }
+
+    // ── Fallback: gentle pink noise ───────────────────────────────────────
+    default: {
+      const src = ctx.createBufferSource();
+      src.buffer = makePinkNoise(ctx, 3);
+      src.loop = true;
+      const lp = ctx.createBiquadFilter();
+      lp.type = 'lowpass'; lp.frequency.value = 900;
+      src.connect(lp); lp.connect(gain);
+      gain.connect(ambientEngine.master);
+      if (ambientEngine.reverb) gain.connect(ambientEngine.reverb);
+      src.start();
+      nodes.push(src);
+    }
+  }
+
+  return { gain, nodes };
 }
 
 function ensureAmbientChannel(key, type) {
   if (ambientEngine.channels[key]) return ambientEngine.channels[key];
-  ambientEngine.channels[key] = buildAmbientNode(type);
+  ambientEngine.channels[key] = buildSoundNode(type);
   return ambientEngine.channels[key];
 }
 
 function setAmbient(key, type, on, vol) {
   resumeAmbient();
   const ch = ensureAmbientChannel(key, type);
-  ch.gain.gain.setTargetAtTime(on ? Math.max(0, Math.min(1, vol)) : 0, ambientEngine.ctx.currentTime, 0.2);
+  const targetVol = on ? Math.max(0, Math.min(1, vol)) : 0;
+  ch.gain.gain.setTargetAtTime(targetVol, ambientEngine.ctx.currentTime, 0.3);
 }
 
 function renderAmbientMixer() {
@@ -747,26 +1028,6 @@ function updateNowMini(track) {
   text.textContent = `${track.name} • ${track.artist}`;
 }
 
-function updatePlayerBar(track) {
-  const artEl    = document.getElementById('playerArt');
-  const nameEl   = document.getElementById('playerTrackName');
-  const artistEl = document.getElementById('playerTrackArtist');
-  if (!nameEl) return;
-  if (!track) {
-    if (artEl) artEl.innerHTML = '🎵';
-    nameEl.textContent   = 'Nothing playing';
-    artistEl.textContent = '—';
-  } else {
-    if (artEl) {
-      artEl.innerHTML = track.image
-        ? `<img src="${track.image}" alt="${esc(track.name)}">`
-        : '🎵';
-    }
-    nameEl.textContent   = track.name;
-    artistEl.textContent = track.artist;
-  }
-}
-
 // ============================================================
 //  PKCE UTILS
 // ============================================================
@@ -879,97 +1140,6 @@ async function searchTracks(query) {
   return d.tracks?.items || [];
 }
 
-async function searchPlaylists(query) {
-  const token = await getToken();
-  if (!token) return null;
-  const r = await fetch(`https://api.spotify.com/v1/search?q=${encodeURIComponent(query)}&type=playlist&limit=6`, {
-    headers: { Authorization: 'Bearer ' + token }
-  });
-  if (!r.ok) return null;
-  const d = await r.json();
-  return d.playlists?.items?.filter(Boolean) || [];
-}
-
-let _playlistSearchCache = {};
-
-async function doPlaylistSearch() {
-  const input   = document.getElementById('playlistSearchInput');
-  const results = document.getElementById('playlistResults');
-  const status  = document.getElementById('mixesStatus');
-  if (!input || !results) return;
-
-  const q = input.value.trim();
-  const demoMode = localStorage.getItem(DEMO_KEY) === '1';
-  const token    = localStorage.getItem(TOKEN_KEY);
-
-  if (!token && !demoMode) {
-    showToast('Connect Spotify to search playlists');
-    showSetup();
-    return;
-  }
-
-  if (!q) { showToast('Enter a playlist name to search'); return; }
-
-  if (status) status.textContent = 'Searching…';
-  results.innerHTML = '<div class="playlist-status"><div class="spinner"></div></div>';
-
-  if (demoMode) {
-    results.innerHTML = '<div class="playlist-status">Playlist search needs Spotify — try demo songs instead!</div>';
-    if (status) status.textContent = '';
-    return;
-  }
-
-  const playlists = await searchPlaylists(q);
-  if (!playlists) {
-    results.innerHTML = '<div class="playlist-status">⚠️ Search failed</div>';
-    return;
-  }
-  if (!playlists.length) {
-    results.innerHTML = '<div class="playlist-status">No playlists found</div>';
-    return;
-  }
-
-  _playlistSearchCache = {};
-  playlists.forEach(p => { _playlistSearchCache[p.id] = p; });
-
-  results.innerHTML = playlists.map(p => {
-    const img = p.images?.[0]?.url || '';
-    const count = p.tracks?.total || '?';
-    return `<div class="playlist-item" onclick="importPlaylist('${p.id}')">
-      ${img ? `<img class="playlist-art" src="${img}" alt="">` : '<div class="playlist-art" style="font-size:18px;display:flex;align-items:center;justify-content:center">🎵</div>'}
-      <div class="playlist-info">
-        <div class="playlist-name">${esc(p.name)}</div>
-        <div class="playlist-tracks">${count} tracks</div>
-      </div>
-      <div class="playlist-import">+ Import 5</div>
-    </div>`;
-  }).join('');
-
-  if (status) status.textContent = `${playlists.length} playlists found`;
-}
-
-async function importPlaylist(playlistId) {
-  const status = document.getElementById('mixesStatus');
-  if (status) status.textContent = 'Importing tracks…';
-  showToast('Loading playlist…');
-
-  const tracks = await fetchPlaylistTracks(playlistId, 15);
-  if (!tracks.length) {
-    showToast('Could not load tracks from that playlist');
-    if (status) status.textContent = 'Import failed';
-    return;
-  }
-
-  let added = 0;
-  for (const track of uniqueRandom(tracks, 5)) {
-    if (addTrack(track)) added++;
-    if (getState().queue.length >= MAX_QUEUE) break;
-  }
-
-  if (status) status.textContent = `Imported ${added} track${added !== 1 ? 's' : ''}`;
-  showToast(`Imported ${added} track${added !== 1 ? 's' : ''} 🎶`);
-}
-
 async function fetchMyMixes() {
   const token = await getToken();
   if (!token) return [];
@@ -992,9 +1162,30 @@ async function fetchPlaylistTracks(playlistId, limit = 5) {
   return (d.items || []).map(i => i.track).filter(Boolean);
 }
 
-function loadSpotifyMixes() {
-  // Replaced by doPlaylistSearch() — playlists are now searched on demand.
-  return;
+async function loadSpotifyMixes() {
+  const select = document.getElementById('mixesSelect');
+  const status = document.getElementById('mixesStatus');
+  if (!select || !status) return;
+
+  const token = localStorage.getItem(TOKEN_KEY);
+  if (!token) {
+    select.innerHTML = '';
+    status.textContent = 'Connect Spotify to load your playlists';
+    return;
+  }
+
+  status.textContent = 'Loading your mixes...';
+  const mixes = await fetchMyMixes();
+  playlistMixCache = mixes;
+
+  if (!mixes.length) {
+    select.innerHTML = '';
+    status.textContent = 'No playlists found in your Spotify account';
+    return;
+  }
+
+  select.innerHTML = mixes.map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join('');
+  status.textContent = `${mixes.length} playlists loaded`;
 }
 
 async function importSelectedMixTracks() {
@@ -1090,8 +1281,6 @@ function playTopSong() {
 function renderAll() {
   renderNowPlaying();
   renderQueue();
-  renderPlayerBar();
-  updateRepeatButtonUI();
   renderSuggestions();
 }
 
@@ -1117,9 +1306,12 @@ function renderNowPlaying() {
     wrap.dataset.trackId = 'none';
     wrap.dataset.paused = '0';
     updateNowMini(null);
-    updatePlayerBar(null);
-    updatePlayPauseButton(true);
-    wrap.innerHTML = '';
+    const btn = document.getElementById('jamPlayPauseBtn');
+    if (btn) btn.textContent = '⏯ Pause';
+    wrap.innerHTML = `<div class="no-playing">
+      <div class="no-playing-icon">🎵</div>
+      <p>Nothing playing yet.<br><strong>Vote for a song</strong> or add one to the queue!</p>
+    </div>`;
     return;
   }
 
@@ -1131,7 +1323,6 @@ function renderNowPlaying() {
   if (!trackChanged && !pausedChanged) {
     updateNowMini(np);
     applySpotifyVolume();
-    updatePlayPauseButton(isPaused);
     return;
   }
 
@@ -1139,7 +1330,8 @@ function renderNowPlaying() {
   if (!trackChanged && pausedChanged) {
     wrap.dataset.paused = isPaused ? '1' : '0';
     updateNowMini(np);
-    updatePlayPauseButton(isPaused);
+    const btn = document.getElementById('jamPlayPauseBtn');
+    if (btn) btn.textContent = isPaused ? '⏯ Resume' : '⏯ Pause';
     if (spotifyController) {
       try {
         if (isPaused) {
@@ -1157,8 +1349,8 @@ function renderNowPlaying() {
   wrap.dataset.trackId = np.id;
   wrap.dataset.paused  = isPaused ? '1' : '0';
   updateNowMini(np);
-  updatePlayerBar(np);
-  updatePlayPauseButton(isPaused);
+  const btn = document.getElementById('jamPlayPauseBtn');
+  if (btn) btn.textContent = isPaused ? '⏯ Resume' : '⏯ Pause';
 
   if (isPaused) {
     // Mounted while paused — show placeholder, no autoplay
@@ -1179,7 +1371,7 @@ function renderNowPlaying() {
     const startSuffix = elapsedSeconds > 0 ? `&t=${elapsedSeconds}` : '';
     wrap.innerHTML = `<iframe
       src="https://open.spotify.com/embed/track/${np.id}?utm_source=generator&theme=0${startSuffix}"
-      width="100%" height="80"
+      width="100%" height="152"
       allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
       loading="lazy">
     </iframe>`;
@@ -1261,7 +1453,6 @@ function renderPlayerBar() {
     curEl.textContent = '0:00';
     totalEl.textContent = '0:00';
     fillEl.style.width = '0%';
-    updatePlayPauseButton(true);
     if (toggleBtn) toggleBtn.textContent = 'Pause';
     return;
   }
@@ -1279,7 +1470,6 @@ function renderPlayerBar() {
   curEl.textContent = formatMs(elapsed);
   totalEl.textContent = formatMs(duration);
   fillEl.style.width = `${pct}%`;
-  updatePlayPauseButton(np.isPaused);
   if (toggleBtn) toggleBtn.textContent = np.isPaused ? 'Resume' : 'Pause';
 }
 
@@ -1340,6 +1530,9 @@ function maybeAutoAdvanceJam() {
   if (!np) return;
   if (np.isPaused) return;
 
+  const hasQueuedNext = state.queue.length > 0;
+  if (!hasQueuedNext) return;
+
   // Fallback signal: local timer elapsed full track duration.
   const startedAt = np.startedAt || 0;
   const duration = np.durationMs || DEFAULT_TRACK_MS;
@@ -1349,16 +1542,8 @@ function maybeAutoAdvanceJam() {
   if (!endedByTimer) return;
 
   autoAdvanceLock = true;
-  if (repeatTrackEnabled) {
-    jamRestartTrack();
-    showToast('Repeating current track');
-  } else if (state.queue.length > 0) {
-    playTopSong();
-    showToast('Jam keeps rolling ▶ next track');
-  } else {
-    state.nowPlaying = null;
-    saveState(state);
-  }
+  playTopSong();
+  showToast('Jam keeps rolling ▶ next track');
   setTimeout(() => { autoAdvanceLock = false; }, 800);
 }
 
@@ -1397,7 +1582,8 @@ function jamTogglePlayPause() {
   }
 
   // Update button immediately — don't wait for the render loop
-  updatePlayPauseButton(np.isPaused);
+  const btn = document.getElementById('jamPlayPauseBtn');
+  if (btn) btn.textContent = np.isPaused ? '⏯ Resume' : '⏯ Pause';
 
   saveState(state);
   if (!applyingRemoteSync) broadcastJamSync();
@@ -1431,29 +1617,6 @@ function jamNextTrack() {
   playTopSong();
   if (!applyingRemoteSync) broadcastJamSync();
   showToast('Skipped to next track for everyone ⏭');
-}
-
-function shuffleQueue() {
-  const state = getState();
-  if (state.queue.length < 2) {
-    showToast('Need at least 2 songs to shuffle');
-    return;
-  }
-
-  for (let i = state.queue.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [state.queue[i], state.queue[j]] = [state.queue[j], state.queue[i]];
-  }
-
-  saveState(state);
-  showToast('Queue shuffled');
-}
-
-function toggleRepeatTrack() {
-  repeatTrackEnabled = !repeatTrackEnabled;
-  saveRepeatState();
-  updateRepeatButtonUI();
-  showToast(repeatTrackEnabled ? 'Repeat on' : 'Repeat off');
 }
 
 function getSuggestions() {
@@ -1847,7 +2010,6 @@ function jamPayload() {
     ambientPrefs: getAmbientPrefs(),
     masterVolume,
     masterMuted,
-    repeatTrackEnabled,
     djState,
   };
 }
@@ -1880,10 +2042,6 @@ function applyJamPayload(payload) {
     }
     if (typeof payload.masterMuted === 'boolean') {
       masterMuted = payload.masterMuted;
-    }
-    if (typeof payload.repeatTrackEnabled === 'boolean') {
-      repeatTrackEnabled = payload.repeatTrackEnabled;
-      localStorage.setItem(REPEAT_TRACK_KEY, repeatTrackEnabled ? '1' : '0');
     }
     saveMasterAudioState();
     if (payload.djState) {
@@ -2093,7 +2251,6 @@ function esc2(s) { return String(s).replace(/'/g,"\\'").replace(/"/g,'\\"').repl
 // ============================================================
 (async function init() {
   loadMasterAudioState();
-  loadRepeatState();
   updateMasterVolumeUI();
   updatePlayerRangeTrack();
   bindMasterVolumeControls();
