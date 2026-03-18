@@ -324,14 +324,23 @@ function applyMasterVolume(ramp = 0.2) {
   ambientEngine.master.gain.setTargetAtTime(target, ambientEngine.ctx.currentTime, ramp);
 }
 
+function updatePlayerRangeTrack() {
+  const pRange = document.getElementById('playerVolumeRange');
+  if (!pRange) return;
+  const pct = masterMuted ? 0 : Math.round(masterVolume * 100);
+  pRange.style.setProperty('--vol-pct', pct + '%');
+  pRange.style.background = `linear-gradient(to right, var(--purple-light) 0%, var(--purple-light) ${pct}%, rgba(255,255,255,0.12) ${pct}%)`;
+}
+
 function setMasterVolumeFromUI(value) {
   masterVolume = Math.max(0, Math.min(1, Number(value) / 100));
   if (masterMuted && masterVolume > 0) masterMuted = false;
   saveMasterAudioState();
   updateMasterVolumeUI();
+  updatePlayerRangeTrack();
   resumeAmbient();
   applyMasterVolume(0.12);
-  applySpotifyVolume(160);
+  applySpotifyVolume(0); // instant response while dragging
 }
 
 function nudgeMasterVolume(deltaPct) {
@@ -343,9 +352,10 @@ function toggleAmbientMute() {
   masterMuted = !masterMuted;
   saveMasterAudioState();
   updateMasterVolumeUI();
+  updatePlayerRangeTrack();
   resumeAmbient();
   applyMasterVolume(0.08);
-  applySpotifyVolume(120);
+  applySpotifyVolume(0); // instant mute/unmute
 }
 
 function loadSpotifyVolumeState() {
@@ -359,16 +369,15 @@ function updateSpotifyVolumeUI() {
 }
 
 function applySpotifyVolume(delayMs = 0) {
-  if (!spotifyController || typeof spotifyController.setVolume !== 'function') return;
-  const next = masterMuted ? 0 : masterVolume;
-  const setVol = () => {
-    try { spotifyController.setVolume(next); } catch {}
+  const doSet = () => {
+    if (!spotifyController) return;
+    const vol = masterMuted ? 0 : masterVolume; // 0.0 – 1.0
+    try {
+      if (typeof spotifyController.setVolume === 'function') spotifyController.setVolume(vol);
+    } catch {}
   };
-  if (delayMs > 0) {
-    setTimeout(setVol, delayMs);
-  } else {
-    setVol();
-  }
+  if (delayMs > 0) setTimeout(doSet, delayMs);
+  else doSet();
 }
 
 function onSpotifyPlaybackUpdate(event) {
@@ -413,22 +422,17 @@ function mountSpotifyTrackEmbed(trackId, startSeconds = 0) {
   }, (controller) => {
     spotifyController = controller;
 
-    // Play on ready — the callback fires when the controller is initialized;
-    // we still need to wait for the embed to signal it's ready to play.
     const tryPlay = () => {
-      if (typeof controller.play === 'function') {
-        try { controller.play(); } catch {}
-      }
+      try { if (typeof controller.play === 'function') controller.play(); } catch {}
+      // Apply volume right after play so the first note is at the correct level
+      applySpotifyVolume(80);
     };
 
-    // Some Spotify IFrame API versions expose addListener('ready', ...)
     if (typeof controller.addListener === 'function') {
       controller.addListener('ready', tryPlay);
     }
-    applySpotifyVolume(120);
-    // Belt-and-suspenders: also fire after a short delay in case the event
-    // already fired before we registered or the API version differs.
-    setTimeout(tryPlay, 400);
+    // Belt-and-suspenders delay fallback
+    setTimeout(tryPlay, 500);
   });
 
   return true;
@@ -975,26 +979,46 @@ function renderNowPlaying() {
   const trackChanged = currentRenderedId !== np.id;
   const pausedChanged = currentPaused !== isPaused;
 
+  // ── Nothing changed: just keep volume in sync and bail ──────────────
   if (!trackChanged && !pausedChanged) {
     updateNowMini(np);
     applySpotifyVolume();
     return;
   }
 
+  // ── Pause/resume only — keep the embed alive, just call the controller ──
+  if (!trackChanged && pausedChanged) {
+    wrap.dataset.paused = isPaused ? '1' : '0';
+    updateNowMini(np);
+    const btn = document.getElementById('jamPlayPauseBtn');
+    if (btn) btn.textContent = isPaused ? '⏯ Resume' : '⏯ Pause';
+    if (spotifyController) {
+      try {
+        if (isPaused) {
+          if (typeof spotifyController.pause === 'function') spotifyController.pause();
+        } else {
+          if (typeof spotifyController.play  === 'function') spotifyController.play();
+          applySpotifyVolume(80);
+        }
+      } catch {}
+    }
+    return;
+  }
+
+  // ── Track changed (or first mount) ──────────────────────────────────
   wrap.dataset.trackId = np.id;
-  wrap.dataset.paused = isPaused ? '1' : '0';
+  wrap.dataset.paused  = isPaused ? '1' : '0';
   updateNowMini(np);
   const btn = document.getElementById('jamPlayPauseBtn');
   if (btn) btn.textContent = isPaused ? '⏯ Resume' : '⏯ Pause';
 
   if (isPaused) {
-    // Clear autoplay timer when paused
+    // Mounted while paused — show placeholder, no autoplay
     if (autoPlayTimeoutId) clearTimeout(autoPlayTimeoutId);
-    
     destroySpotifyController();
     wrap.innerHTML = `<div class="no-playing">
       <div class="no-playing-icon">⏸</div>
-      <p><strong>${esc(np.name)}</strong><br>Paused for everyone in the jam room</p>
+      <p><strong>${esc(np.name)}</strong><br>Paused — hit Resume to start</p>
     </div>`;
     return;
   }
@@ -1003,7 +1027,7 @@ function renderNowPlaying() {
   const mounted = mountSpotifyTrackEmbed(np.id, elapsedSeconds);
 
   if (!mounted) {
-    // Fallback if iframe API is not ready yet.
+    // Fallback: plain iframe (Spotify IFrame API not ready yet)
     const startSuffix = elapsedSeconds > 0 ? `&t=${elapsedSeconds}` : '';
     wrap.innerHTML = `<iframe
       src="https://open.spotify.com/embed/track/${np.id}?utm_source=generator&theme=0${startSuffix}"
@@ -1196,16 +1220,31 @@ function jamTogglePlayPause() {
   const np = state.nowPlaying;
 
   if (np.isPaused) {
+    // Resume: adjust startedAt so elapsed time accounts for the pause gap
     const pauseAt = np.pausedAt || Date.now();
     np.startedAt = (np.startedAt || Date.now()) + (Date.now() - pauseAt);
-    np.isPaused = false;
-    np.pausedAt = null;
-    showToast('Resumed for everyone ▶');
+    np.isPaused  = false;
+    np.pausedAt  = null;
+    // Tell the Spotify player to resume immediately (render will also catch it)
+    if (spotifyController) {
+      try { if (typeof spotifyController.play === 'function') spotifyController.play(); } catch {}
+      applySpotifyVolume(60);
+    }
+    showToast('Resumed ▶');
   } else {
     np.isPaused = true;
     np.pausedAt = Date.now();
-    showToast('Paused for everyone ⏸');
+    // Tell the Spotify player to pause immediately
+    if (spotifyController) {
+      try { if (typeof spotifyController.pause === 'function') spotifyController.pause(); } catch {}
+    }
+    showToast('Paused ⏸');
   }
+
+  // Update button immediately — don't wait for the render loop
+  const btn = document.getElementById('jamPlayPauseBtn');
+  if (btn) btn.textContent = np.isPaused ? '⏯ Resume' : '⏯ Pause';
+
   saveState(state);
   if (!applyingRemoteSync) broadcastJamSync();
 }
@@ -1214,11 +1253,19 @@ function jamRestartTrack() {
   const state = getState();
   if (!state.nowPlaying) return;
   state.nowPlaying.startedAt = Date.now();
-  state.nowPlaying.pausedAt = null;
-  state.nowPlaying.isPaused = false;
+  state.nowPlaying.pausedAt  = null;
+  state.nowPlaying.isPaused  = false;
   saveState(state);
+  // Seek the live player to 0 and resume — avoids a full embed remount
+  if (spotifyController) {
+    try {
+      if (typeof spotifyController.seekTo === 'function') spotifyController.seekTo(0);
+      if (typeof spotifyController.play   === 'function') spotifyController.play();
+      applySpotifyVolume(80);
+    } catch {}
+  }
   if (!applyingRemoteSync) broadcastJamSync();
-  showToast('Track restarted for everyone');
+  showToast('Track restarted ⏮');
 }
 
 function jamNextTrack() {
@@ -1671,7 +1718,7 @@ function applyJamPayload(payload) {
   renderAmbientMixer();
   updateMasterVolumeUI();
   applyMasterVolume(0.08);
-  applySpotifyVolume(120);
+  applySpotifyVolume(0); // instant mute/unmute
   updateDjControls();
   renderAll();
 }
@@ -1865,6 +1912,7 @@ function esc2(s) { return String(s).replace(/'/g,"\\'").replace(/"/g,'\\"').repl
 (async function init() {
   loadMasterAudioState();
   updateMasterVolumeUI();
+  updatePlayerRangeTrack();
 
   loadDjState();
   updateDjControls();
@@ -1945,4 +1993,5 @@ function esc2(s) { return String(s).replace(/'/g,"\\'").replace(/"/g,'\\"').repl
   }, 1000);
   // Poll for updates every 5s (fallback)
   setInterval(renderAll, 5000);
-})();
+})
+();
