@@ -1555,6 +1555,12 @@ function initializeJamFromUrl() {
     localStorage.setItem(CLIENT_KEY, cid);
   }
 
+  // If a shared client id is present, don't keep guests stuck in local demo mode.
+  if (cid && localStorage.getItem(DEMO_KEY) === '1') {
+    localStorage.removeItem(DEMO_KEY);
+    updateSpotifyBadge(false, false);
+  }
+
   if (!room) {
     updateJamOverlayFields();
     return;
@@ -1594,7 +1600,12 @@ function handleSpotifyBadgeClick() {
   const token = localStorage.getItem(TOKEN_KEY);
   const demo  = localStorage.getItem(DEMO_KEY) === '1';
   if (!token && !demo) { showSetup(); }
-  else if (demo) { showToast('In demo mode. Reload to connect Spotify.'); }
+  else if (demo) {
+    localStorage.removeItem(DEMO_KEY);
+    updateSpotifyBadge(false, false);
+    showSetup();
+    showToast('Demo mode off. Connect Spotify to unlock full access.');
+  }
   else {
     if (confirm('Disconnect Spotify?')) {
       localStorage.removeItem(TOKEN_KEY);
