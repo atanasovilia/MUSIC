@@ -345,6 +345,28 @@ header {
 
 .play-top-btn:disabled { opacity: 0.35; cursor: not-allowed; }
 
+.transport-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 8px;
+}
+
+.transport-btn {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: rgba(255,255,255,0.05);
+  color: var(--text-sub);
+  font-size: 12px;
+  padding: 8px 6px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.transport-btn:hover {
+  border-color: var(--border-glow);
+  color: var(--text);
+}
+
 /* ===== VOTING PANEL ===== */
 .voting-panel {
   display: flex; flex-direction: column; gap: 14px;
@@ -526,6 +548,42 @@ header {
   background: var(--bg-card);
   backdrop-filter: blur(14px);
   padding: 12px;
+}
+
+.mixes-card {
+  border-radius: var(--r);
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  backdrop-filter: blur(14px);
+  padding: 12px;
+}
+
+.mixes-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.mixes-row select,
+.mixes-row button {
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: rgba(255,255,255,0.05);
+  color: var(--text-sub);
+  font-size: 12px;
+  padding: 8px 10px;
+}
+
+.mixes-row button {
+  cursor: pointer;
+}
+
+.mixes-row button:hover,
+.mixes-row select:focus {
+  border-color: var(--border-glow);
+  color: var(--text);
+  outline: none;
 }
 
 .suggest-form {
@@ -1055,6 +1113,10 @@ header {
   }
 
   .dj-controls {
+    grid-template-columns: 1fr;
+  }
+
+  .mixes-row {
     grid-template-columns: 1fr;
   }
 

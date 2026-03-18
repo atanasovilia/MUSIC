@@ -124,6 +124,11 @@
           <p>Nothing playing yet.<br><strong>Vote for a song</strong> or add one to the queue!</p>
         </div>
       </div>
+      <div class="transport-row">
+        <button class="transport-btn" onclick="jamRestartTrack()">⏮ Restart</button>
+        <button class="transport-btn" id="jamPlayPauseBtn" onclick="jamTogglePlayPause()">⏯ Pause</button>
+        <button class="transport-btn" onclick="jamNextTrack()">⏭ Next</button>
+      </div>
       <button class="play-top-btn" id="playTopBtn" onclick="playTopSong()" disabled>
         <span>▶</span> PLAY TOP VOTED
       </button>
@@ -146,6 +151,15 @@
       <button class="suggest-btn" id="suggestBtn" onclick="openSearch()">
         <span>＋</span> Suggest a song
       </button>
+
+      <div class="mixes-card" id="mixesCard">
+        <div class="panel-label">🎚 my spotify mixes</div>
+        <div class="mixes-row">
+          <select id="mixesSelect"></select>
+          <button type="button" onclick="importSelectedMixTracks()">Import 5</button>
+        </div>
+        <div class="field-hint" id="mixesStatus">Connect Spotify to load your playlists</div>
+      </div>
 
       <div class="suggestions-card">
         <div class="panel-label">💡 shared suggestions</div>

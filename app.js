@@ -119,6 +119,7 @@ let jamPeer = null;
 let jamConnections = [];
 let jamRoomCode = '';
 let jamLastTs = 0;
+let playlistMixCache = [];
 
 let djState = {
   enabled: false,
@@ -560,7 +561,7 @@ async function initiateAuth() {
   const p = new URLSearchParams({
     response_type: 'code',
     client_id: clientId,
-    scope: 'user-read-private user-read-email',
+    scope: 'user-read-private user-read-email playlist-read-private playlist-read-collaborative',
     redirect_uri: getRedirectUri(),
     code_challenge_method: 'S256',
     code_challenge: c,
@@ -635,6 +636,77 @@ async function searchTracks(query) {
   return d.tracks?.items || [];
 }
 
+async function fetchMyMixes() {
+  const token = await getToken();
+  if (!token) return [];
+  const r = await fetch('https://api.spotify.com/v1/me/playlists?limit=30', {
+    headers: { Authorization: 'Bearer ' + token }
+  });
+  if (!r.ok) return [];
+  const d = await r.json();
+  return d.items || [];
+}
+
+async function fetchPlaylistTracks(playlistId, limit = 5) {
+  const token = await getToken();
+  if (!token) return [];
+  const r = await fetch(`https://api.spotify.com/v1/playlists/${playlistId}/tracks?limit=${limit}&fields=items(track(id,name,duration_ms,artists(name),album(images)))`, {
+    headers: { Authorization: 'Bearer ' + token }
+  });
+  if (!r.ok) return [];
+  const d = await r.json();
+  return (d.items || []).map(i => i.track).filter(Boolean);
+}
+
+async function loadSpotifyMixes() {
+  const select = document.getElementById('mixesSelect');
+  const status = document.getElementById('mixesStatus');
+  if (!select || !status) return;
+
+  const token = localStorage.getItem(TOKEN_KEY);
+  if (!token) {
+    select.innerHTML = '';
+    status.textContent = 'Connect Spotify to load your playlists';
+    return;
+  }
+
+  status.textContent = 'Loading your mixes...';
+  const mixes = await fetchMyMixes();
+  playlistMixCache = mixes;
+
+  if (!mixes.length) {
+    select.innerHTML = '';
+    status.textContent = 'No playlists found in your Spotify account';
+    return;
+  }
+
+  select.innerHTML = mixes.map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join('');
+  status.textContent = `${mixes.length} playlists loaded`;
+}
+
+async function importSelectedMixTracks() {
+  const select = document.getElementById('mixesSelect');
+  const status = document.getElementById('mixesStatus');
+  if (!select || !select.value) {
+    showToast('Select a playlist first');
+    return;
+  }
+
+  const tracks = await fetchPlaylistTracks(select.value, 12);
+  if (!tracks.length) {
+    showToast('Could not load tracks from that playlist');
+    return;
+  }
+
+  let added = 0;
+  for (const track of uniqueRandom(tracks, 5)) {
+    if (addTrack(track)) added++;
+    if (getState().queue.length >= MAX_QUEUE) break;
+  }
+
+  if (status) status.textContent = `Imported ${added} tracks from mix`;
+}
+
 // ============================================================
 //  QUEUE MANAGEMENT
 // ============================================================
@@ -707,6 +779,7 @@ function renderNowPlaying() {
   const wrap = document.getElementById('nowPlayingWrap');
   const np = state.nowPlaying;
   const currentRenderedId = wrap.dataset.trackId || '';
+  const currentPaused = wrap.dataset.paused === '1';
 
   if (!np) {
     if (currentRenderedId === 'none') {
@@ -715,13 +788,17 @@ function renderNowPlaying() {
     }
 
     wrap.dataset.trackId = 'none';
+    wrap.dataset.paused = '0';
     updateNowMini(null);
+    const btn = document.getElementById('jamPlayPauseBtn');
+    if (btn) btn.textContent = '⏯ Pause';
     wrap.innerHTML = `<div class="no-playing">
       <div class="no-playing-icon">🎵</div>
       <p>Nothing playing yet.<br><strong>Vote for a song</strong> or add one to the queue!</p>
     </div>`;
   } else {
-    if (currentRenderedId === np.id && wrap.querySelector('iframe')) {
+    const isPaused = !!np.isPaused;
+    if (currentRenderedId === np.id && currentPaused === isPaused && wrap.querySelector('iframe')) {
       updateNowMini(np);
       return;
     }
@@ -729,7 +806,19 @@ function renderNowPlaying() {
     const elapsedSeconds = Math.max(0, Math.floor((Date.now() - (np.startedAt || Date.now())) / 1000));
     const startSuffix = elapsedSeconds > 0 ? `&t=${elapsedSeconds}` : '';
     wrap.dataset.trackId = np.id;
+    wrap.dataset.paused = isPaused ? '1' : '0';
     updateNowMini(np);
+    const btn = document.getElementById('jamPlayPauseBtn');
+    if (btn) btn.textContent = isPaused ? '⏯ Resume' : '⏯ Pause';
+
+    if (isPaused) {
+      wrap.innerHTML = `<div class="no-playing">
+        <div class="no-playing-icon">⏸</div>
+        <p><strong>${esc(np.name)}</strong><br>Paused for everyone in the jam room</p>
+      </div>`;
+      return;
+    }
+
     // Use Spotify iframe embed (works without auth, auto-plays preview or full for premium)
     wrap.innerHTML = `<iframe
       src="https://open.spotify.com/embed/track/${np.id}?utm_source=generator&theme=0${startSuffix}"
@@ -903,6 +992,51 @@ function maybeAutoAdvanceJam() {
   playTopSong();
   showToast('Jam keeps rolling ▶ next track');
   setTimeout(() => { autoAdvanceLock = false; }, 800);
+}
+
+function maybeAutoStartFromQueue() {
+  const state = getState();
+  if (state.nowPlaying) return;
+  if (!state.queue.length) return;
+  playTopSong();
+}
+
+function jamTogglePlayPause() {
+  const state = getState();
+  if (!state.nowPlaying) return;
+  const np = state.nowPlaying;
+
+  if (np.isPaused) {
+    const pauseAt = np.pausedAt || Date.now();
+    np.startedAt = (np.startedAt || Date.now()) + (Date.now() - pauseAt);
+    np.isPaused = false;
+    np.pausedAt = null;
+    showToast('Resumed for everyone ▶');
+  } else {
+    np.isPaused = true;
+    np.pausedAt = Date.now();
+    showToast('Paused for everyone ⏸');
+  }
+  saveState(state);
+}
+
+function jamRestartTrack() {
+  const state = getState();
+  if (!state.nowPlaying) return;
+  state.nowPlaying.startedAt = Date.now();
+  state.nowPlaying.pausedAt = null;
+  state.nowPlaying.isPaused = false;
+  saveState(state);
+  showToast('Track restarted for everyone');
+}
+
+function jamNextTrack() {
+  const state = getState();
+  if (!state.queue.length) {
+    showToast('Queue is empty');
+    return;
+  }
+  playTopSong();
 }
 
 function getSuggestions() {
@@ -1398,6 +1532,9 @@ function handleSpotifyBadgeClick() {
       localStorage.removeItem(TOKEN_KEY);
       localStorage.removeItem(REFRESH_KEY);
       localStorage.removeItem(EXPIRY_KEY);
+      playlistMixCache = [];
+      const mixes = document.getElementById('mixesSelect');
+      if (mixes) mixes.innerHTML = '';
       updateSpotifyBadge(false, false);
       showToast('Disconnected from Spotify');
     }
@@ -1410,6 +1547,7 @@ function updateSpotifyBadge(connected, demo) {
   if (connected) {
     badge.classList.remove('disconnected');
     text.textContent = 'Spotify Connected';
+    loadSpotifyMixes();
   } else if (demo) {
     badge.classList.remove('disconnected');
     badge.style.color = '#94a3b8';
@@ -1419,6 +1557,8 @@ function updateSpotifyBadge(connected, demo) {
   } else {
     badge.classList.add('disconnected');
     text.textContent = 'Connect Spotify';
+    const status = document.getElementById('mixesStatus');
+    if (status) status.textContent = 'Connect Spotify to load your playlists';
   }
 }
 
@@ -1508,6 +1648,7 @@ function esc2(s) { return String(s).replace(/'/g,"\\'").replace(/"/g,'\\"').repl
   }
 
   setInterval(() => {
+    maybeAutoStartFromQueue();
     maybeAutoAdvanceJam();
     runDjTick();
   }, 1000);
