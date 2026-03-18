@@ -110,6 +110,8 @@ const ambientEngine = {
   ready: false,
 };
 
+let autoAdvanceLock = false;
+
 // Cross-tab sync
 let bc;
 try { bc = new BroadcastChannel('lofi_together'); } catch(e) {}
@@ -501,13 +503,27 @@ function renderNowPlaying() {
   const state = getState();
   const wrap = document.getElementById('nowPlayingWrap');
   const np = state.nowPlaying;
+  const currentRenderedId = wrap.dataset.trackId || '';
+
   if (!np) {
+    if (currentRenderedId === 'none') {
+      updateNowMini(null);
+      return;
+    }
+
+    wrap.dataset.trackId = 'none';
     updateNowMini(null);
     wrap.innerHTML = `<div class="no-playing">
       <div class="no-playing-icon">🎵</div>
       <p>Nothing playing yet.<br><strong>Vote for a song</strong> or add one to the queue!</p>
     </div>`;
   } else {
+    if (currentRenderedId === np.id && wrap.querySelector('iframe')) {
+      updateNowMini(np);
+      return;
+    }
+
+    wrap.dataset.trackId = np.id;
     updateNowMini(np);
     // Use Spotify iframe embed (works without auth, auto-plays preview or full for premium)
     wrap.innerHTML = `<iframe
@@ -618,6 +634,26 @@ function scrubPlayer(event) {
   const duration = state.nowPlaying.durationMs || DEFAULT_TRACK_MS;
   state.nowPlaying.startedAt = Date.now() - Math.floor(duration * ratio);
   saveState(state);
+}
+
+function maybeAutoAdvanceJam() {
+  if (autoAdvanceLock) return;
+
+  const state = getState();
+  const np = state.nowPlaying;
+  if (!np) return;
+
+  const startedAt = np.startedAt || 0;
+  const duration = np.durationMs || DEFAULT_TRACK_MS;
+  const elapsed = Date.now() - startedAt;
+
+  if (elapsed < duration + 1200) return;
+  if (!state.queue.length) return;
+
+  autoAdvanceLock = true;
+  playTopSong();
+  showToast('Jam keeps rolling ▶ next track');
+  setTimeout(() => { autoAdvanceLock = false; }, 800);
 }
 
 function getSuggestions() {
@@ -1018,7 +1054,10 @@ function esc2(s) { return String(s).replace(/'/g,"\\'").replace(/"/g,'\\"').repl
     };
   }
 
-  setInterval(renderPlayerBar, 1000);
+  setInterval(() => {
+    renderPlayerBar();
+    maybeAutoAdvanceJam();
+  }, 1000);
   // Poll for updates every 5s (fallback)
   setInterval(renderAll, 5000);
 })();
