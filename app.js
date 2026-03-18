@@ -61,6 +61,7 @@ const REFRESH_KEY = 'lofi_refresh_token';
 const VERIFIER_KEY= 'lofi_pkce_verifier';
 const SESSION_KEY = 'lofi_session';
 const DEMO_KEY    = 'lofi_demo_mode';
+const PROD_SPOTIFY_REDIRECT_URI = 'https://musicdistro.vercel.app';
 
 // Cross-tab sync
 let bc;
@@ -102,8 +103,11 @@ async function genChallenge(v) {
 //  AUTH FLOW
 // ============================================================
 function getRedirectUri() {
-  // Always use a single callback URI so Spotify redirect matching stays exact.
-  return window.location.origin;
+  // On Vercel, force one canonical callback to avoid preview/alias mismatches.
+  if (window.location.hostname.endsWith('.vercel.app')) {
+    return PROD_SPOTIFY_REDIRECT_URI;
+  }
+  return window.location.origin.replace(/\/$/, '');
 }
 
 async function initiateAuth() {
