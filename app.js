@@ -124,6 +124,7 @@ let jamPeer = null;
 let jamConnections = [];
 let jamRoomCode = '';
 let jamLastTs = 0;
+const jamSeenMessageIds = new Set();
 let playlistMixCache = [];
 let masterVolume = 0.28;
 let masterMuted = false;
@@ -300,6 +301,7 @@ function loadMasterAudioState() {
 function saveMasterAudioState() {
   localStorage.setItem(MASTER_VOLUME_KEY, String(masterVolume));
   localStorage.setItem(MASTER_MUTED_KEY, masterMuted ? '1' : '0');
+  if (!applyingRemoteSync) broadcastJamSync();
 }
 
 function updateMasterVolumeUI() {
@@ -329,6 +331,7 @@ function setMasterVolumeFromUI(value) {
   updateMasterVolumeUI();
   resumeAmbient();
   applyMasterVolume(0.12);
+  applySpotifyVolume(160);
 }
 
 function nudgeMasterVolume(deltaPct) {
@@ -342,6 +345,7 @@ function toggleAmbientMute() {
   updateMasterVolumeUI();
   resumeAmbient();
   applyMasterVolume(0.08);
+  applySpotifyVolume(120);
 }
 
 function loadSpotifyVolumeState() {
@@ -354,9 +358,17 @@ function updateSpotifyVolumeUI() {
   return;
 }
 
-function applySpotifyVolume() {
-  // Spotify embed volume is now unified with master volume control.
-  return;
+function applySpotifyVolume(delayMs = 0) {
+  if (!spotifyController || typeof spotifyController.setVolume !== 'function') return;
+  const next = masterMuted ? 0 : masterVolume;
+  const setVol = () => {
+    try { spotifyController.setVolume(next); } catch {}
+  };
+  if (delayMs > 0) {
+    setTimeout(setVol, delayMs);
+  } else {
+    setVol();
+  }
 }
 
 function onSpotifyPlaybackUpdate(event) {
@@ -413,6 +425,7 @@ function mountSpotifyTrackEmbed(trackId, startSeconds = 0) {
     if (typeof controller.addListener === 'function') {
       controller.addListener('ready', tryPlay);
     }
+    applySpotifyVolume(120);
     // Belt-and-suspenders: also fire after a short delay in case the event
     // already fired before we registered or the API version differs.
     setTimeout(tryPlay, 400);
@@ -1538,14 +1551,21 @@ function updateJamOverlayFields() {
   const codeInput = document.getElementById('jamCodeInput');
   const linkInput = document.getElementById('jamLinkInput');
   const status = document.getElementById('jamStatusText');
+  const presence = document.getElementById('jamPresence');
   if (codeInput) codeInput.value = code;
   if (linkInput) linkInput.value = code ? roomShareUrl(code) : '';
+
+  const participants = code ? getJamParticipantCount() : 1;
+  if (presence) {
+    presence.textContent = participants === 1 ? '1 here' : `${participants} here`;
+    presence.classList.toggle('active', participants > 1);
+  }
+
   if (status) {
     if (!code) {
       status.textContent = 'Not connected';
     } else {
       const peerOk = jamConnections.some(c => c && c.open);
-      const participants = getJamParticipantCount();
       const connStatus = peerOk ? '🟢 Connected' : '🟡 Waiting';
       const participantText = participants === 1 ? 'you' : `${participants} people`;
       status.textContent = `${connStatus} in room ${code} • ${participantText}`;
@@ -1593,20 +1613,35 @@ function disconnectJamPeer() {
 function jamPayload() {
   return {
     type: 'sync',
+    id: `${getSessionId()}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    from: getSessionId(),
     ts: Date.now(),
     clientId: localStorage.getItem(CLIENT_KEY) || '',
     state: getState(),
     suggestions: getSuggestions(),
     theme: getCurrentTheme(),
     ambientPrefs: getAmbientPrefs(),
+    masterVolume,
+    masterMuted,
     djState,
   };
 }
 
 function applyJamPayload(payload) {
   if (!payload || payload.type !== 'sync') return;
-  if (payload.ts <= jamLastTs) return;
-  jamLastTs = payload.ts;
+  if (payload.from === getSessionId()) return;
+
+  if (payload.id) {
+    if (jamSeenMessageIds.has(payload.id)) return;
+    jamSeenMessageIds.add(payload.id);
+    if (jamSeenMessageIds.size > 300) {
+      const first = jamSeenMessageIds.values().next();
+      if (!first.done) jamSeenMessageIds.delete(first.value);
+    }
+  }
+
+  // Keep a local marker for diagnostics only; avoid clock-based filtering across devices.
+  jamLastTs = payload.ts || Date.now();
 
   applyingRemoteSync = true;
   try {
@@ -1615,6 +1650,13 @@ function applyJamPayload(payload) {
     if (payload.clientId) applySharedClientId(payload.clientId, false);
     if (payload.theme) setSceneTheme(payload.theme, true);
     if (payload.ambientPrefs) localStorage.setItem(AMBIENT_PREFS_KEY, JSON.stringify(payload.ambientPrefs));
+    if (typeof payload.masterVolume === 'number') {
+      masterVolume = Math.max(0, Math.min(1, payload.masterVolume));
+    }
+    if (typeof payload.masterMuted === 'boolean') {
+      masterMuted = payload.masterMuted;
+    }
+    saveMasterAudioState();
     if (payload.djState) {
       djState = {
         enabled: !!payload.djState.enabled,
@@ -1627,6 +1669,9 @@ function applyJamPayload(payload) {
   }
 
   renderAmbientMixer();
+  updateMasterVolumeUI();
+  applyMasterVolume(0.08);
+  applySpotifyVolume(120);
   updateDjControls();
   renderAll();
 }
