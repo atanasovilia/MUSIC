@@ -73,6 +73,7 @@ const DEFAULT_TRACK_MS = 180000;
 const MAX_QUEUE = 5;
 const DJ_STATE_KEY = 'lofi_dj_state_v1';
 const REPEAT_TRACK_KEY = 'lofi_repeat_track_v1';
+const CONFIGURED_CLIENT_ID = ((window.LOFI_CONFIG && window.LOFI_CONFIG.spotifyClientId) || '').trim();
 
 const SCENE_THEMES = [
   { id: 'space', emoji: '🌌', label: 'Space' },
@@ -209,6 +210,15 @@ function getSessionId() {
 function getState() {
   try { return JSON.parse(localStorage.getItem(STATE_KEY)) || { queue:[], nowPlaying:null }; }
   catch { return { queue:[], nowPlaying:null }; }
+}
+
+function resolveClientId() {
+  return CONFIGURED_CLIENT_ID || (localStorage.getItem(CLIENT_KEY) || '').trim();
+}
+
+function syncConfiguredClientId() {
+  if (!CONFIGURED_CLIENT_ID) return;
+  localStorage.setItem(CLIENT_KEY, CONFIGURED_CLIENT_ID);
 }
 
 function loadDjState() {
@@ -1244,7 +1254,7 @@ function getRedirectUri() {
 }
 
 async function initiateAuth() {
-  const clientId = localStorage.getItem(CLIENT_KEY);
+  const clientId = resolveClientId();
   if (!clientId) { 
     return; // Don't call showSetup here - let caller handle it
   }
@@ -1263,7 +1273,7 @@ async function initiateAuth() {
 }
 
 async function exchangeToken(code) {
-  const clientId = localStorage.getItem(CLIENT_KEY);
+  const clientId = resolveClientId();
   const verifier = localStorage.getItem(VERIFIER_KEY);
   const res = await fetch('https://accounts.spotify.com/api/token', {
     method: 'POST',
@@ -1288,7 +1298,7 @@ async function exchangeToken(code) {
 
 async function refreshToken() {
   const rt = localStorage.getItem(REFRESH_KEY);
-  const clientId = localStorage.getItem(CLIENT_KEY);
+  const clientId = resolveClientId();
   if (!rt || !clientId) return null;
   const res = await fetch('https://accounts.spotify.com/api/token', {
     method: 'POST',
@@ -2108,8 +2118,29 @@ function renderDemoResults(q) {
 //  SETUP & MODALS
 // ============================================================
 function showSetup() {
-  document.getElementById('thisUrl').textContent = getRedirectUri();
-  document.getElementById('setupOverlay').classList.remove('hidden');
+  const overlay = document.getElementById('setupOverlay');
+  const subtitle = overlay.querySelector('.modal-subtitle');
+  const steps = overlay.querySelector('.steps');
+  const redirectCode = document.getElementById('thisUrl');
+  if (redirectCode) redirectCode.textContent = getRedirectUri();
+
+  if (subtitle && steps) {
+    if (CONFIGURED_CLIENT_ID) {
+      subtitle.innerHTML = 'This room already has a Spotify developer app connected. You only need to log in with your own Spotify account.';
+      steps.innerHTML = '<strong style="color:var(--text)">Quick setup</strong><br>1. Click <strong>Connect Spotify</strong><br>2. Approve access for your Spotify account<br>3. Start or join a room link<br>4. Everyone listens through the same app config';
+    } else {
+      subtitle.innerHTML = "Connect your Spotify to search &amp; suggest songs. You'll need a free Spotify Developer app &mdash; it only takes a minute.";
+      steps.innerHTML = ' <strong style="color:var(--text)">Quick setup (2 min)</strong><br>1. Go to <a href="https://developer.spotify.com/dashboard" target="_blank">developer.spotify.com/dashboard</a><br>2. Create an App &rarr; copy your <strong>Client ID</strong><br>3. In App settings &rarr; Redirect URIs &rarr; add <code id="thisUrl">' + esc(getRedirectUri()) + '</code><br>4. Paste your Client ID below and connect!';
+    }
+  }
+
+  const input = document.getElementById('clientIdInput');
+  if (input) {
+    input.value = CONFIGURED_CLIENT_ID || resolveClientId();
+    input.disabled = !!CONFIGURED_CLIENT_ID;
+    input.placeholder = CONFIGURED_CLIENT_ID ? 'Configured by the room host' : 'e.g. 4a2b3c8d9e0f1a2b3c4d5e6f7a8b9c0d';
+  }
+  overlay.classList.remove('hidden');
 }
 
 function hideSetup() {
@@ -2117,7 +2148,7 @@ function hideSetup() {
 }
 
 function saveSetup() {
-  const clientId = document.getElementById('clientIdInput').value.trim();
+  const clientId = CONFIGURED_CLIENT_ID || document.getElementById('clientIdInput').value.trim();
   if (!clientId || clientId.length < 20) { showToast('Please enter a valid Client ID'); return; }
   localStorage.setItem(CLIENT_KEY, clientId);
   hideSetup();
@@ -2165,7 +2196,7 @@ function sanitizeRoomCode(raw) {
 function roomShareUrl(code) {
   const url = new URL(window.location.href);
   url.searchParams.set('room', code);
-  const clientId = localStorage.getItem(CLIENT_KEY);
+  const clientId = resolveClientId();
   if (clientId) url.searchParams.set('cid', clientId);
   url.searchParams.delete('code');
   url.searchParams.delete('error');
@@ -2175,6 +2206,7 @@ function roomShareUrl(code) {
 function applySharedClientId(sharedClientId, notify = false) {
   const cid = (sharedClientId || '').trim();
   if (!cid) return false;
+  if (CONFIGURED_CLIENT_ID) return cid === CONFIGURED_CLIENT_ID;
 
   const current = (localStorage.getItem(CLIENT_KEY) || '').trim();
   const changed = current !== cid;
@@ -2276,7 +2308,7 @@ function jamPayload() {
     id: `${getSessionId()}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     from: getSessionId(),
     ts: Date.now(),
-    clientId: localStorage.getItem(CLIENT_KEY) || '',
+    clientId: resolveClientId(),
     state: getState(),
     suggestions: getSuggestions(),
     theme: getCurrentTheme(),
@@ -2520,6 +2552,7 @@ function esc2(s) { return String(s).replace(/'/g,"\\'").replace(/"/g,'\\"').repl
 //  INIT
 // ============================================================
 (async function init() {
+  syncConfiguredClientId();
   loadMasterAudioState();
   loadSpotifyVolumeState();
   loadRepeatState();
@@ -2565,7 +2598,7 @@ function esc2(s) { return String(s).replace(/'/g,"\\'").replace(/"/g,'\\"').repl
   } else {
     const token   = localStorage.getItem(TOKEN_KEY);
     const demo    = localStorage.getItem(DEMO_KEY) === '1';
-    const clientId= localStorage.getItem(CLIENT_KEY);
+    const clientId= resolveClientId();
 
     if (token) {
       // Silently refresh if expired
