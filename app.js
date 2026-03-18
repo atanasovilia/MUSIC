@@ -563,6 +563,7 @@ function esc2(s) { return String(s).replace(/'/g,"\\'").replace(/"/g,'\\"').repl
     history.replaceState({}, '', '/');
     const token = await exchangeToken(code);
     if (token) {
+      hideSetup();
       updateSpotifyBadge(true, false);
       showToast('Spotify connected! 🎵');
     } else {
@@ -582,8 +583,10 @@ function esc2(s) { return String(s).replace(/'/g,"\\'").replace(/"/g,'\\"').repl
       // Silently refresh if expired
       const expiry = parseInt(localStorage.getItem(EXPIRY_KEY) || '0');
       if (Date.now() > expiry - 60000) { await refreshToken(); }
+      hideSetup();
       updateSpotifyBadge(true, false);
     } else if (demo) {
+      hideSetup();
       updateSpotifyBadge(false, true);
     } else if (clientId) {
       // Has client ID but no token — re-auth
