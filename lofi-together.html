@@ -129,11 +129,6 @@
         <button class="transport-btn" id="jamPlayPauseBtn" onclick="jamTogglePlayPause()">⏯ Pause</button>
         <button class="transport-btn" onclick="jamNextTrack()">⏭ Next</button>
       </div>
-      <div class="spotify-volume-row">
-        <span class="spotify-volume-label">Spotify Vol</span>
-        <input id="spotifyVolumeRange" type="range" min="0" max="100" value="70" oninput="setSpotifyVolumeFromUI(this.value)">
-        <span class="spotify-volume-value" id="spotifyVolumeValue">70%</span>
-      </div>
       <button class="play-top-btn" id="playTopBtn" onclick="playTopSong()" disabled>
         <span>▶</span> PLAY TOP VOTED
       </button>
@@ -188,14 +183,21 @@
       </div>
     </div>
 
+    <aside class="volume-panel">
+      <div class="panel-label">🔊 master volume</div>
+      <div class="volume-controls">
+        <button class="volume-btn" onclick="nudgeMasterVolume(-15)">−</button>
+        <div class="volume-display">
+          <input id="masterVolumeRange" type="range" min="0" max="100" value="28" oninput="setMasterVolumeFromUI(this.value)">
+          <span class="volume-value" id="masterVolumeValue">28%</span>
+        </div>
+        <button class="volume-btn" onclick="nudgeMasterVolume(15)">＋</button>
+      </div>
+      <button class="mute-btn" id="masterMuteBtn" onclick="toggleAmbientMute()">🔇 Mute</button>
+    </aside>
+
     <aside class="mixer-panel">
       <div class="panel-label">🎛 ambient mix</div>
-      <div class="master-volume-controls">
-        <button class="master-vol-btn" onclick="nudgeMasterVolume(-10)">−</button>
-        <input id="masterVolumeRange" type="range" min="0" max="100" value="28" oninput="setMasterVolumeFromUI(this.value)">
-        <button class="master-vol-btn" onclick="nudgeMasterVolume(10)">＋</button>
-        <button class="master-mute-btn" id="masterMuteBtn" onclick="toggleAmbientMute()">Mute</button>
-      </div>
       <div class="ambient-list" id="ambientList"></div>
       <div class="ambient-actions">
         <button onclick="ambientAllOff()">All Off</button>

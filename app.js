@@ -128,15 +128,8 @@ let masterVolume = 0.28;
 let masterMuted = false;
 let spotifyVolume = 0.7;
 let spotifyIframeApi = null;
+let autoPlayTimeoutId = null;
 let spotifyController = null;
-let spotifyPlayback = {
-  position: 0,
-  duration: 0,
-  isPaused: true,
-  updatedAt: 0,
-  trackUri: '',
-};
-let spotifyEndedAt = 0;
 
 let djState = {
   enabled: false,
@@ -349,90 +342,23 @@ function toggleAmbientMute() {
 }
 
 function loadSpotifyVolumeState() {
-  const saved = parseFloat(localStorage.getItem(SPOTIFY_VOLUME_KEY) || '0.7');
-  spotifyVolume = Number.isFinite(saved) ? Math.max(0, Math.min(1, saved)) : 0.7;
+  // Volume is now unified with master volume.
+  return;
 }
 
 function updateSpotifyVolumeUI() {
-  const range = document.getElementById('spotifyVolumeRange');
-  const value = document.getElementById('spotifyVolumeValue');
-  const pct = Math.round(spotifyVolume * 100);
-  if (range) range.value = String(pct);
-  if (value) value.textContent = `${pct}%`;
+  // Volume display is unified in volume-panel.
+  return;
 }
 
 function applySpotifyVolume() {
-  // Spotify embed doesn't expose programmatic volume control.
-  // Instead, sync spotted volume with ambient master volume for unified control.
-  const state = getState();
-  if (!state.nowPlaying) return;
-  
-  // Apply to ambient engine as master control.
-  masterVolume = spotifyVolume;
-  saveMasterAudioState();
-  updateMasterVolumeUI();
-  applyMasterVolume(0.12);
-}
-
-function setSpotifyVolumeFromUI(value) {
-  spotifyVolume = Math.max(0, Math.min(1, Number(value) / 100));
-  localStorage.setItem(SPOTIFY_VOLUME_KEY, String(spotifyVolume));
-  updateSpotifyVolumeUI();
-  // Sync with ambient/master volume for unified control.
-  masterVolume = spotifyVolume;
-  saveMasterAudioState();
-  updateMasterVolumeUI();
-  resumeAmbient();
-  applyMasterVolume(0.12);
-}
-
-function destroySpotifyController() {
-  if (!spotifyController) return;
-  try { spotifyController.destroy(); } catch {}
-  spotifyController = null;
-  spotifyPlayback = {
-    position: 0,
-    duration: 0,
-    isPaused: true,
-    updatedAt: 0,
-    trackUri: '',
-  };
-}
-
-function initSpotifyVolumeSync() {
-  // Sync Spotify volume slider with master ambient volume.
-  spotifyVolume = masterVolume;
-  localStorage.setItem(SPOTIFY_VOLUME_KEY, String(spotifyVolume));
-  updateSpotifyVolumeUI();
+  // Spotify embed volume is now unified with master volume control.
+  return;
 }
 
 function onSpotifyPlaybackUpdate(event) {
-  const data = event?.data || event || {};
-  const pos = Number(data.position);
-  const dur = Number(data.duration);
-  const paused = !!data.isPaused;
-  const trackUri = data.track?.uri || data.uri || '';
-
-  if (Number.isFinite(pos)) spotifyPlayback.position = pos;
-  if (Number.isFinite(dur) && dur > 0) spotifyPlayback.duration = dur;
-  spotifyPlayback.isPaused = paused;
-  spotifyPlayback.updatedAt = Date.now();
-  if (trackUri) spotifyPlayback.trackUri = trackUri;
-
-  const state = getState();
-  const np = state.nowPlaying;
-  if (!np) return;
-
-  const expectedUri = `spotify:track:${np.id}`;
-  const sameTrack = !trackUri || trackUri === expectedUri;
-  const durationMs = spotifyPlayback.duration || np.durationMs || DEFAULT_TRACK_MS;
-  const nearEnd = spotifyPlayback.position >= Math.max(0, durationMs - 1200);
-
-  if (sameTrack && paused && nearEnd) {
-    spotifyEndedAt = Date.now();
-  } else if (!paused) {
-    spotifyEndedAt = 0;
-  }
+  // Playback tracking removed - using simple timer fallback instead.
+  return;
 }
 
 function mountSpotifyTrackEmbed(trackId, startSeconds = 0) {
@@ -456,17 +382,6 @@ function mountSpotifyTrackEmbed(trackId, startSeconds = 0) {
     theme: 'black',
   }, (controller) => {
     spotifyController = controller;
-    spotifyEndedAt = 0;
-
-    if (controller.addListener) {
-      controller.addListener('playback_update', onSpotifyPlaybackUpdate);
-    }
-
-    applySpotifyVolume();
-
-    if (startSeconds > 0 && typeof controller.seek === 'function') {
-      try { controller.seek(startSeconds * 1000); } catch {}
-    }
 
     if (typeof controller.play === 'function') {
       try { controller.play(); } catch {}
@@ -968,9 +883,22 @@ function playTopSong() {
     isPaused: false,
     pausedAt: null,
   };
-  spotifyEndedAt = 0;
   state.queue = state.queue.filter(t => t.id !== top.id);
   saveState(state);
+  
+  // Clear any existing autoplay timeout
+  if (autoPlayTimeoutId) clearTimeout(autoPlayTimeoutId);
+  
+  // Set up timer-based autoplay for when this track finishes
+  const duration = state.nowPlaying.durationMs || DEFAULT_TRACK_MS;
+  autoPlayTimeoutId = setTimeout(() => {
+    const updated = getState();
+    if (updated.nowPlaying && updated.nowPlaying.id === top.id && !updated.nowPlaying.isPaused && updated.queue.length > 0) {
+      playTopSong();
+      showToast('▶ Next track playing');
+    }
+  }, duration);
+  
   showToast('Now playing: ' + top.name + ' ✨');
 }
 
@@ -998,6 +926,9 @@ function renderNowPlaying() {
       return;
     }
 
+    // Clear autoplay timer when no track is playing
+    if (autoPlayTimeoutId) clearTimeout(autoPlayTimeoutId);
+    
     destroySpotifyController();
     wrap.dataset.trackId = 'none';
     wrap.dataset.paused = '0';
@@ -1027,7 +958,26 @@ function renderNowPlaying() {
   const btn = document.getElementById('jamPlayPauseBtn');
   if (btn) btn.textContent = isPaused ? '⏯ Resume' : '⏯ Pause';
 
+  if (trackChanged && !isPaused) {
+    // Set up autoplay timer when a new track starts playing
+    if (autoPlayTimeoutId) clearTimeout(autoPlayTimeoutId);
+    const duration = np.durationMs || DEFAULT_TRACK_MS;
+    const trackId = np.id;
+    const elapsedSoFar = Date.now() - (np.startedAt || Date.now());
+    const remainingMs = Math.max(0, duration - elapsedSoFar);
+    autoPlayTimeoutId = setTimeout(() => {
+      const updated = getState();
+      if (updated.nowPlaying && updated.nowPlaying.id === trackId && !updated.nowPlaying.isPaused && updated.queue.length > 0) {
+        playTopSong();
+        showToast('▶ Next track playing');
+      }
+    }, remainingMs);
+  }
+
   if (isPaused) {
+    // Clear autoplay timer when paused
+    if (autoPlayTimeoutId) clearTimeout(autoPlayTimeoutId);
+    
     destroySpotifyController();
     wrap.innerHTML = `<div class="no-playing">
       <div class="no-playing-icon">⏸</div>
@@ -1176,10 +1126,26 @@ function togglePlayerPlayback() {
     np.isPaused = false;
     np.pausedAt = null;
     showToast('Resumed ▶');
+    
+    // Restart autoplay timer when resuming
+    if (autoPlayTimeoutId) clearTimeout(autoPlayTimeoutId);
+    const duration = np.durationMs || DEFAULT_TRACK_MS;
+    const elapsedSinceStart = Date.now() - np.startedAt;
+    const remainingMs = Math.max(0, duration - elapsedSinceStart);
+    autoPlayTimeoutId = setTimeout(() => {
+      const updated = getState();
+      if (updated.nowPlaying && updated.nowPlaying.id === np.id && !updated.nowPlaying.isPaused && updated.queue.length > 0) {
+        playTopSong();
+        showToast('▶ Next track playing');
+      }
+    }, remainingMs);
   } else {
     np.isPaused = true;
     np.pausedAt = Date.now();
     showToast('Paused ❚❚');
+    
+    // Clear autoplay timer when paused
+    if (autoPlayTimeoutId) clearTimeout(autoPlayTimeoutId);
   }
 
   saveState(state);
@@ -1192,10 +1158,25 @@ function restartPlayerTrack() {
   state.nowPlaying.pausedAt = null;
   state.nowPlaying.isPaused = false;
   saveState(state);
+  
+  // Configure autoplay timer for restarted track
+  if (autoPlayTimeoutId) clearTimeout(autoPlayTimeoutId);
+  const duration = state.nowPlaying.durationMs || DEFAULT_TRACK_MS;
+  const trackId = state.nowPlaying.id;
+  autoPlayTimeoutId = setTimeout(() => {
+    const updated = getState();
+    if (updated.nowPlaying && updated.nowPlaying.id === trackId && !updated.nowPlaying.isPaused && updated.queue.length > 0) {
+      playTopSong();
+      showToast('▶ Next track playing');
+    }
+  }, duration);
+  
   showToast('Restarted track ⏮');
 }
 
 function maybeAutoAdvanceJam() {
+  // This is a fallback safety check in case timer didn't trigger
+  // (e.g., in jam sync scenarios or system lag)
   if (autoAdvanceLock) return;
 
   const state = getState();
@@ -1206,21 +1187,19 @@ function maybeAutoAdvanceJam() {
   const hasQueuedNext = state.queue.length > 0;
   if (!hasQueuedNext) return;
 
-  // Primary signal: Spotify embed reports paused near the end.
-  const endedByEmbed = spotifyEndedAt > 0 && (Date.now() - spotifyEndedAt) < 4500;
-
-  // Fallback signal: local timer elapsed full track duration.
+  // Only advance if significantly past the track duration (safety margin)
   const startedAt = np.startedAt || 0;
   const duration = np.durationMs || DEFAULT_TRACK_MS;
   const elapsed = Date.now() - startedAt;
-  const endedByTimer = elapsed >= duration + 1200;
+  // Use a very generous margin since timer should handle exact timing
+  const shouldAdvance = elapsed >= duration + 3000;
 
-  if (!endedByEmbed && !endedByTimer) return;
+  if (!shouldAdvance) return;
 
   autoAdvanceLock = true;
-  spotifyEndedAt = 0;
+  if (autoPlayTimeoutId) clearTimeout(autoPlayTimeoutId);
   playTopSong();
-  showToast('Jam keeps rolling ▶ next track');
+  showToast('▶ Queue advancing (fallback)');
   setTimeout(() => { autoAdvanceLock = false; }, 800);
 }
 
@@ -1242,10 +1221,26 @@ function jamTogglePlayPause() {
     np.isPaused = false;
     np.pausedAt = null;
     showToast('Resumed for everyone ▶');
+    
+    // Restart autoplay timer when resuming
+    if (autoPlayTimeoutId) clearTimeout(autoPlayTimeoutId);
+    const duration = np.durationMs || DEFAULT_TRACK_MS;
+    const elapsedSinceStart = Date.now() - np.startedAt;
+    const remainingMs = Math.max(0, duration - elapsedSinceStart);
+    autoPlayTimeoutId = setTimeout(() => {
+      const updated = getState();
+      if (updated.nowPlaying && updated.nowPlaying.id === np.id && !updated.nowPlaying.isPaused && updated.queue.length > 0) {
+        playTopSong();
+        showToast('▶ Next track playing');
+      }
+    }, remainingMs);
   } else {
     np.isPaused = true;
     np.pausedAt = Date.now();
     showToast('Paused for everyone ⏸');
+    
+    // Clear autoplay timer when paused
+    if (autoPlayTimeoutId) clearTimeout(autoPlayTimeoutId);
   }
   saveState(state);
   if (!applyingRemoteSync) broadcastJamSync();
@@ -1258,6 +1253,19 @@ function jamRestartTrack() {
   state.nowPlaying.pausedAt = null;
   state.nowPlaying.isPaused = false;
   saveState(state);
+  
+  // Configure autoplay timer for restarted track
+  if (autoPlayTimeoutId) clearTimeout(autoPlayTimeoutId);
+  const duration = state.nowPlaying.durationMs || DEFAULT_TRACK_MS;
+  const trackId = state.nowPlaying.id;
+  autoPlayTimeoutId = setTimeout(() => {
+    const updated = getState();
+    if (updated.nowPlaying && updated.nowPlaying.id === trackId && !updated.nowPlaying.isPaused && updated.queue.length > 0) {
+      playTopSong();
+      showToast('▶ Next track playing');
+    }
+  }, duration);
+  
   if (!applyingRemoteSync) broadcastJamSync();
   showToast('Track restarted for everyone');
 }
@@ -1268,6 +1276,8 @@ function jamNextTrack() {
     showToast('Queue is empty');
     return;
   }
+  // Clear the autoplay timer since we're manually skipping
+  if (autoPlayTimeoutId) clearTimeout(autoPlayTimeoutId);
   playTopSong();
   if (!applyingRemoteSync) broadcastJamSync();
   showToast('Skipped to next track for everyone ⏭');
@@ -1874,9 +1884,6 @@ function esc2(s) { return String(s).replace(/'/g,"\\'").replace(/"/g,'\\"').repl
 (async function init() {
   loadMasterAudioState();
   updateMasterVolumeUI();
-  loadSpotifyVolumeState();
-  updateSpotifyVolumeUI();
-  initSpotifyVolumeSync();
 
   loadDjState();
   updateDjControls();
