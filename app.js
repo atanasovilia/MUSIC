@@ -102,7 +102,8 @@ async function genChallenge(v) {
 //  AUTH FLOW
 // ============================================================
 function getRedirectUri() {
-  return window.location.origin + window.location.pathname;
+  // Always use a single callback URI so Spotify redirect matching stays exact.
+  return `${window.location.origin}/`;
 }
 
 async function initiateAuth() {
@@ -559,7 +560,7 @@ function esc2(s) { return String(s).replace(/'/g,"\\'").replace(/"/g,'\\"').repl
 
   // Handle OAuth callback
   if (code) {
-    history.replaceState({}, '', window.location.pathname);
+    history.replaceState({}, '', '/');
     const token = await exchangeToken(code);
     if (token) {
       updateSpotifyBadge(true, false);
@@ -569,7 +570,7 @@ function esc2(s) { return String(s).replace(/'/g,"\\'").replace(/"/g,'\\"').repl
       showSetup();
     }
   } else if (error) {
-    history.replaceState({}, '', window.location.pathname);
+    history.replaceState({}, '', '/');
     showToast('Spotify auth cancelled');
     showSetup();
   } else {
