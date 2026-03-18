@@ -364,21 +364,26 @@ function onSpotifyPlaybackUpdate(event) {
   return;
 }
 
-function destroySpotifyController() {
+function destroySpotifyController(removeHost = true) {
   if (spotifyController) {
     try {
       if (typeof spotifyController.destroy === 'function') spotifyController.destroy();
     } catch {}
     spotifyController = null;
   }
-  // Also remove any lingering embed host element
-  const host = document.getElementById('spotifyEmbedHost');
-  if (host) host.remove();
+  if (removeHost) {
+    // Also remove any lingering embed host element
+    const host = document.getElementById('spotifyEmbedHost');
+    if (host) host.remove();
+  }
 }
 
 function mountSpotifyTrackEmbed(trackId, startSeconds = 0) {
   const wrap = document.getElementById('nowPlayingWrap');
   if (!wrap) return false;
+
+  // Tear down prior controller first, but keep the container we are about to create.
+  destroySpotifyController(false);
 
   const host = document.createElement('div');
   host.id = 'spotifyEmbedHost';
@@ -387,8 +392,6 @@ function mountSpotifyTrackEmbed(trackId, startSeconds = 0) {
   if (!spotifyIframeApi || typeof spotifyIframeApi.createController !== 'function') {
     return false;
   }
-
-  destroySpotifyController();
 
   spotifyIframeApi.createController(host, {
     uri: `spotify:track:${trackId}`,
