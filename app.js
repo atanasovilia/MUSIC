@@ -66,6 +66,8 @@ const SUGGESTIONS_KEY = 'lofi_shared_suggestions_v1';
 const AMBIENT_PREFS_KEY = 'lofi_ambient_prefs_v1';
 const PROD_SPOTIFY_REDIRECT_URI = 'https://musicdistro.vercel.app';
 const DEFAULT_TRACK_MS = 180000;
+const MAX_QUEUE = 5;
+const DJ_STATE_KEY = 'lofi_dj_state_v1';
 
 const SCENE_THEMES = [
   { id: 'city',  emoji: '🌃', label: 'City' },
@@ -118,6 +120,54 @@ let jamConnections = [];
 let jamRoomCode = '';
 let jamLastTs = 0;
 
+let djState = {
+  enabled: false,
+  vibe: 'lofi',
+};
+
+const DJ_LIBRARY = {
+  lofi: [
+    { id:'4iV5W9uYEdYUVa79Axb7Rh', name:'Clair de Lune', artist:'Debussy' },
+    { id:'3HfB5hBU0dmBt8T0iCmH42', name:'Lo-Fi Bloom', artist:'Sleep Dealer' },
+    { id:'2Foc5Q5nqNiosCNqttzHof', name:'Weightless', artist:'Marconi Union' },
+    { id:'0WWkfzLIBxnb5SFf6Zftzv', name:'Birdsong', artist:'Lo-Fi Beats' },
+    { id:'4VqPOruhp5EdPBeR92t6lQ', name:'Numb', artist:'Men I Trust' },
+    { id:'2M9ro2krNb7nr7HSprkEgo', name:'Sunset Lover', artist:'Petit Biscuit' },
+  ],
+  chill: [
+    { id:'1dGr1c8CrMLDpV6mPbImSI', name:'Coffee & Rain', artist:'Fkj' },
+    { id:'7ouMYWpwJ422jRcDASZB7P', name:'Midnight City', artist:'M83' },
+    { id:'3bn9A4JH0dUUNJQPnUViMC', name:'Retrograde', artist:'James Blake' },
+    { id:'6habFhsOp2NvshLv26DqMb', name:'Vibin Out', artist:'FKJ' },
+    { id:'2takcwOaAZWiXQijPHIx7B', name:'Electric Feel', artist:'MGMT' },
+    { id:'5ChkMS8OtdzJeqyybCc9R5', name:'Do I Wanna Know?', artist:'Arctic Monkeys' },
+  ],
+  focus: [
+    { id:'2Foc5Q5nqNiosCNqttzHof', name:'Weightless', artist:'Marconi Union' },
+    { id:'0VjIjW4GlUZAMYd2vXMi3b', name:'Blinding Lights', artist:'The Weeknd' },
+    { id:'5CMjjywI0eZMixPeqNd75R', name:'Afterglow', artist:'Phaeleh' },
+    { id:'6K4t31amVTZDgR3sKmwUJJ', name:'Breathe', artist:'Telepopmusik' },
+    { id:'4wCmqSrbyCgxEXROQE6vtV', name:'Everything in Its Right Place', artist:'Radiohead' },
+    { id:'2xLMifQCjDGFmkHkpNLD9h', name:'Sparks', artist:'Coldplay' },
+  ],
+  night: [
+    { id:'7ouMYWpwJ422jRcDASZB7P', name:'Midnight City', artist:'M83' },
+    { id:'0eGsygTp906u18L0Oimnem', name:'Lose Yourself to Dance', artist:'Daft Punk' },
+    { id:'3AJwUDP919kvQ9QcozQPxg', name:'Time', artist:'Pink Floyd' },
+    { id:'2m6Ko3CY1qXNNja8AlugNc', name:'Nights', artist:'Frank Ocean' },
+    { id:'1AhDOtG9vPSOmsWgNW0BEY', name:'Take Care', artist:'Drake' },
+    { id:'5W3cjX2J3tjhG8zb6u0qHn', name:'Can I Call You Tonight?', artist:'Dayglow' },
+  ],
+  rainy: [
+    { id:'2Foc5Q5nqNiosCNqttzHof', name:'Weightless', artist:'Marconi Union' },
+    { id:'6I9VzXrHxO9rA9A5euc8Ak', name:'Viva La Vida', artist:'Coldplay' },
+    { id:'4S4QJfBGGrC8jRIjJHf1Ka', name:'Riverside', artist:'Agnes Obel' },
+    { id:'2gMXnyrvIjhVBUZwvLZDMP', name:'Space Song', artist:'Beach House' },
+    { id:'3MytWN8L7shNYzGl4tAKRp', name:'Tadow', artist:'Masego' },
+    { id:'1BxfuPKGuaTgP7aM0Bbdwr', name:'Dandelions', artist:'Ruth B.' },
+  ],
+};
+
 // Cross-tab sync
 let bc;
 try { bc = new BroadcastChannel('lofi_together'); } catch(e) {}
@@ -131,6 +181,81 @@ function getSessionId() {
 function getState() {
   try { return JSON.parse(localStorage.getItem(STATE_KEY)) || { queue:[], nowPlaying:null }; }
   catch { return { queue:[], nowPlaying:null }; }
+}
+
+function loadDjState() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(DJ_STATE_KEY) || '{}');
+    djState.enabled = !!saved.enabled;
+    djState.vibe = saved.vibe || 'lofi';
+  } catch {
+    djState.enabled = false;
+    djState.vibe = 'lofi';
+  }
+}
+
+function saveDjState() {
+  localStorage.setItem(DJ_STATE_KEY, JSON.stringify(djState));
+  if (!applyingRemoteSync) broadcastJamSync();
+}
+
+function updateDjControls() {
+  const sel = document.getElementById('djVibeSelect');
+  const btn = document.getElementById('djToggleBtn');
+  if (sel) sel.value = djState.vibe;
+  if (btn) btn.textContent = djState.enabled ? 'DJ On' : 'DJ Off';
+}
+
+function setDjVibe(vibe) {
+  djState.vibe = DJ_LIBRARY[vibe] ? vibe : 'lofi';
+  saveDjState();
+  updateDjControls();
+  showToast(`Vibe set: ${djState.vibe}`);
+}
+
+function toggleDjMode() {
+  djState.enabled = !djState.enabled;
+  saveDjState();
+  updateDjControls();
+  showToast(djState.enabled ? 'DJ mode enabled 🎛' : 'DJ mode paused');
+}
+
+function toTrackShape(seed) {
+  return {
+    id: seed.id,
+    name: seed.name,
+    artists: [{ name: seed.artist }],
+    album: { images: [] },
+    duration_ms: DEFAULT_TRACK_MS,
+  };
+}
+
+function uniqueRandom(items, count) {
+  const copy = [...items];
+  for (let i = copy.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [copy[i], copy[j]] = [copy[j], copy[i]];
+  }
+  return copy.slice(0, count);
+}
+
+function addRandomSongsToQueue(count = 5) {
+  const vibe = djState.vibe || 'lofi';
+  const pool = DJ_LIBRARY[vibe] || DJ_LIBRARY.lofi;
+  const picked = uniqueRandom(pool, count);
+  let added = 0;
+  for (const seed of picked) {
+    if (addTrack(toTrackShape(seed))) added++;
+    if (getState().queue.length >= MAX_QUEUE) break;
+  }
+  if (added) showToast(`DJ loaded ${added} ${vibe} tracks`);
+}
+
+function runDjTick() {
+  if (!djState.enabled) return;
+  const state = getState();
+  if (state.queue.length >= Math.min(3, MAX_QUEUE)) return;
+  addRandomSongsToQueue(Math.min(2, MAX_QUEUE - state.queue.length));
 }
 
 function saveState(state) {
@@ -515,7 +640,7 @@ async function searchTracks(query) {
 // ============================================================
 function addTrack(track) {
   const state = getState();
-  if (state.queue.length >= 3) { showToast('Queue is full! Wait for a song to play 🎵'); return false; }
+  if (state.queue.length >= MAX_QUEUE) { showToast('Queue is full! Wait for a song to play 🎵'); return false; }
   if (state.queue.find(t => t.id === track.id)) { showToast('That song is already in the queue!'); return false; }
   const sid = getSessionId();
   state.queue.push({
@@ -574,7 +699,6 @@ function playTopSong() {
 function renderAll() {
   renderNowPlaying();
   renderQueue();
-  renderPlayerBar();
   renderSuggestions();
 }
 
@@ -602,11 +726,13 @@ function renderNowPlaying() {
       return;
     }
 
+    const elapsedSeconds = Math.max(0, Math.floor((Date.now() - (np.startedAt || Date.now())) / 1000));
+    const startSuffix = elapsedSeconds > 0 ? `&t=${elapsedSeconds}` : '';
     wrap.dataset.trackId = np.id;
     updateNowMini(np);
     // Use Spotify iframe embed (works without auth, auto-plays preview or full for premium)
     wrap.innerHTML = `<iframe
-      src="https://open.spotify.com/embed/track/${np.id}?utm_source=generator&theme=0"
+      src="https://open.spotify.com/embed/track/${np.id}?utm_source=generator&theme=0${startSuffix}"
       width="100%" height="152"
       allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
       loading="lazy">
@@ -622,9 +748,9 @@ function renderQueue() {
   const suggestBtn = document.getElementById('suggestBtn');
   const sid = getSessionId();
 
-  countEl.textContent = `${state.queue.length} / 3 songs`;
+  countEl.textContent = `${state.queue.length} / ${MAX_QUEUE} songs`;
   playBtn.disabled = state.queue.length === 0;
-  suggestBtn.disabled = state.queue.length >= 3;
+  suggestBtn.disabled = state.queue.length >= MAX_QUEUE;
 
   if (!state.queue.length) {
     list.innerHTML = `<div class="empty-queue">
@@ -671,6 +797,7 @@ function formatMs(ms) {
 }
 
 function renderPlayerBar() {
+  if (!document.getElementById('playerArt')) return;
   const state = getState();
   const np = state.nowPlaying;
   const artEl = document.getElementById('playerArt');
@@ -709,6 +836,7 @@ function renderPlayerBar() {
 }
 
 function scrubPlayer(event) {
+  if (!document.getElementById('playerProgress')) return;
   const state = getState();
   if (!state.nowPlaying) return;
   const bar = document.getElementById('playerProgress');
@@ -726,6 +854,7 @@ function scrubPlayer(event) {
 }
 
 function togglePlayerPlayback() {
+  if (!document.getElementById('playerToggleBtn')) return;
   const state = getState();
   if (!state.nowPlaying) return;
   const np = state.nowPlaying;
@@ -1112,6 +1241,7 @@ function jamPayload() {
     suggestions: getSuggestions(),
     theme: getCurrentTheme(),
     ambientPrefs: getAmbientPrefs(),
+    djState,
   };
 }
 
@@ -1126,11 +1256,19 @@ function applyJamPayload(payload) {
     if (payload.suggestions) localStorage.setItem(SUGGESTIONS_KEY, JSON.stringify(payload.suggestions));
     if (payload.theme) setSceneTheme(payload.theme, true);
     if (payload.ambientPrefs) localStorage.setItem(AMBIENT_PREFS_KEY, JSON.stringify(payload.ambientPrefs));
+    if (payload.djState) {
+      djState = {
+        enabled: !!payload.djState.enabled,
+        vibe: DJ_LIBRARY[payload.djState.vibe] ? payload.djState.vibe : 'lofi',
+      };
+      localStorage.setItem(DJ_STATE_KEY, JSON.stringify(djState));
+    }
   } finally {
     applyingRemoteSync = false;
   }
 
   renderAmbientMixer();
+  updateDjControls();
   renderAll();
 }
 
@@ -1306,6 +1444,9 @@ function esc2(s) { return String(s).replace(/'/g,"\\'").replace(/"/g,'\\"').repl
 //  INIT
 // ============================================================
 (async function init() {
+  loadDjState();
+  updateDjControls();
+
   renderSceneStrip();
   setSceneTheme(localStorage.getItem(THEME_KEY) || 'city', false);
   bindKeyboardShortcuts();
@@ -1367,8 +1508,8 @@ function esc2(s) { return String(s).replace(/'/g,"\\'").replace(/"/g,'\\"').repl
   }
 
   setInterval(() => {
-    renderPlayerBar();
     maybeAutoAdvanceJam();
+    runDjTick();
   }, 1000);
   // Poll for updates every 5s (fallback)
   setInterval(renderAll, 5000);
