@@ -72,6 +72,7 @@ const PROD_SPOTIFY_REDIRECT_URI = 'https://musicdistro.vercel.app';
 const DEFAULT_TRACK_MS = 180000;
 const MAX_QUEUE = 5;
 const DJ_STATE_KEY = 'lofi_dj_state_v1';
+const REPEAT_TRACK_KEY = 'lofi_repeat_track_v1';
 
 const SCENE_THEMES = [
   { id: 'city',  emoji: '🌃', label: 'City' },
@@ -131,6 +132,7 @@ let masterMuted = false;
 let spotifyVolume = 0.7;
 let spotifyIframeApi = null;
 let spotifyController = null;
+let repeatTrackEnabled = false;
 
 let djState = {
   enabled: false,
@@ -304,16 +306,49 @@ function saveMasterAudioState() {
   if (!applyingRemoteSync) broadcastJamSync();
 }
 
+function loadRepeatState() {
+  repeatTrackEnabled = localStorage.getItem(REPEAT_TRACK_KEY) === '1';
+}
+
+function saveRepeatState() {
+  localStorage.setItem(REPEAT_TRACK_KEY, repeatTrackEnabled ? '1' : '0');
+  if (!applyingRemoteSync) broadcastJamSync();
+}
+
+function updateRepeatButtonUI() {
+  const repeatBtn = document.getElementById('repeatBtn');
+  if (!repeatBtn) return;
+  repeatBtn.classList.toggle('active', repeatTrackEnabled);
+}
+
+function updatePlayPauseButton(isPaused) {
+  const btn = document.getElementById('jamPlayPauseBtn');
+  if (!btn) return;
+  if (isPaused) {
+    btn.innerHTML = '<svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M4 3.5a.75.75 0 0 1 1.18-.61l7 4.5a.75.75 0 0 1 0 1.22l-7 4.5A.75.75 0 0 1 4 12.5v-9Z"/></svg>';
+    btn.title = 'Resume';
+    btn.setAttribute('aria-label', 'Resume');
+  } else {
+    btn.innerHTML = '<svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M4.75 2.5c.41 0 .75.34.75.75v9.5a.75.75 0 0 1-1.5 0v-9.5c0-.41.34-.75.75-.75Zm6.5 0c.41 0 .75.34.75.75v9.5a.75.75 0 0 1-1.5 0v-9.5c0-.41.34-.75.75-.75Z"/></svg>';
+    btn.title = 'Pause';
+    btn.setAttribute('aria-label', 'Pause');
+  }
+}
+
 function updateMasterVolumeUI() {
-  const range = document.getElementById('masterVolumeRange');
+  const ranges = [
+    document.getElementById('masterVolumeRange'),
+    document.getElementById('playerVolumeRange'),
+  ].filter(Boolean);
   const valEl  = document.getElementById('masterVolumeValue');
   const muteBtn = document.getElementById('masterMuteBtn');
   const pct = Math.round(masterVolume * 100);
-  if (range) range.value = String(pct);
+  ranges.forEach((range) => { range.value = String(pct); });
   if (valEl) valEl.textContent = pct + '%';
   if (muteBtn) {
     muteBtn.classList.toggle('active', masterMuted);
-    muteBtn.textContent = masterMuted ? '🔇 Unmute' : '🔇 Mute';
+    muteBtn.title = masterMuted ? 'Unmute' : 'Mute';
+    muteBtn.setAttribute('aria-label', masterMuted ? 'Unmute' : 'Mute');
   }
 }
 
@@ -344,17 +379,18 @@ function setMasterVolumeFromUI(value) {
 }
 
 function bindMasterVolumeControls() {
-  const volumeRange = document.getElementById('masterVolumeRange');
-  if (!volumeRange) return;
-  
-  // Listen to input events for real-time response (like dragging)
-  volumeRange.addEventListener('input', (e) => {
-    setMasterVolumeFromUI(e.target.value);
-  });
-  
-  // Also listen to change events for when user releases (ensures saved state)
-  volumeRange.addEventListener('change', (e) => {
-    setMasterVolumeFromUI(e.target.value);
+  const ranges = [
+    document.getElementById('masterVolumeRange'),
+    document.getElementById('playerVolumeRange'),
+  ].filter(Boolean);
+
+  ranges.forEach((volumeRange) => {
+    volumeRange.addEventListener('input', (e) => {
+      setMasterVolumeFromUI(e.target.value);
+    });
+    volumeRange.addEventListener('change', (e) => {
+      setMasterVolumeFromUI(e.target.value);
+    });
   });
 }
 
@@ -384,9 +420,21 @@ function updateSpotifyVolumeUI() {
 }
 
 function applySpotifyVolume(delayMs = 0) {
-  // Spotify volume is handled natively by its own embed controls.
-  // masterVolume only affects the ambient audio engine.
-  return;
+  const target = masterMuted ? 0 : masterVolume;
+  spotifyVolume = target;
+  localStorage.setItem(SPOTIFY_VOLUME_KEY, String(spotifyVolume));
+
+  const setVol = () => {
+    if (!spotifyController) return;
+    try {
+      if (typeof spotifyController.setVolume === 'function') {
+        spotifyController.setVolume(target);
+      }
+    } catch {}
+  };
+
+  if (delayMs > 0) setTimeout(setVol, delayMs);
+  else setVol();
 }
 
 function onSpotifyPlaybackUpdate(event) {
@@ -1042,6 +1090,8 @@ function playTopSong() {
 function renderAll() {
   renderNowPlaying();
   renderQueue();
+  renderPlayerBar();
+  updateRepeatButtonUI();
   renderSuggestions();
 }
 
@@ -1068,12 +1118,8 @@ function renderNowPlaying() {
     wrap.dataset.paused = '0';
     updateNowMini(null);
     updatePlayerBar(null);
-    const btn = document.getElementById('jamPlayPauseBtn');
-    if (btn) btn.textContent = '⏯ Pause';
-    wrap.innerHTML = `<div class="no-playing">
-      <div class="no-playing-icon">🎵</div>
-      <p>Nothing playing yet.<br><strong>Vote for a song</strong> or add one to the queue!</p>
-    </div>`;
+    updatePlayPauseButton(true);
+    wrap.innerHTML = '';
     return;
   }
 
@@ -1085,6 +1131,7 @@ function renderNowPlaying() {
   if (!trackChanged && !pausedChanged) {
     updateNowMini(np);
     applySpotifyVolume();
+    updatePlayPauseButton(isPaused);
     return;
   }
 
@@ -1092,8 +1139,7 @@ function renderNowPlaying() {
   if (!trackChanged && pausedChanged) {
     wrap.dataset.paused = isPaused ? '1' : '0';
     updateNowMini(np);
-    const btn = document.getElementById('jamPlayPauseBtn');
-    if (btn) btn.textContent = isPaused ? '⏯ Resume' : '⏯ Pause';
+    updatePlayPauseButton(isPaused);
     if (spotifyController) {
       try {
         if (isPaused) {
@@ -1112,8 +1158,7 @@ function renderNowPlaying() {
   wrap.dataset.paused  = isPaused ? '1' : '0';
   updateNowMini(np);
   updatePlayerBar(np);
-  const btn = document.getElementById('jamPlayPauseBtn');
-  if (btn) btn.textContent = isPaused ? '⏯ Resume' : '⏯ Pause';
+  updatePlayPauseButton(isPaused);
 
   if (isPaused) {
     // Mounted while paused — show placeholder, no autoplay
@@ -1216,6 +1261,7 @@ function renderPlayerBar() {
     curEl.textContent = '0:00';
     totalEl.textContent = '0:00';
     fillEl.style.width = '0%';
+    updatePlayPauseButton(true);
     if (toggleBtn) toggleBtn.textContent = 'Pause';
     return;
   }
@@ -1233,6 +1279,7 @@ function renderPlayerBar() {
   curEl.textContent = formatMs(elapsed);
   totalEl.textContent = formatMs(duration);
   fillEl.style.width = `${pct}%`;
+  updatePlayPauseButton(np.isPaused);
   if (toggleBtn) toggleBtn.textContent = np.isPaused ? 'Resume' : 'Pause';
 }
 
@@ -1293,9 +1340,6 @@ function maybeAutoAdvanceJam() {
   if (!np) return;
   if (np.isPaused) return;
 
-  const hasQueuedNext = state.queue.length > 0;
-  if (!hasQueuedNext) return;
-
   // Fallback signal: local timer elapsed full track duration.
   const startedAt = np.startedAt || 0;
   const duration = np.durationMs || DEFAULT_TRACK_MS;
@@ -1305,8 +1349,16 @@ function maybeAutoAdvanceJam() {
   if (!endedByTimer) return;
 
   autoAdvanceLock = true;
-  playTopSong();
-  showToast('Jam keeps rolling ▶ next track');
+  if (repeatTrackEnabled) {
+    jamRestartTrack();
+    showToast('Repeating current track');
+  } else if (state.queue.length > 0) {
+    playTopSong();
+    showToast('Jam keeps rolling ▶ next track');
+  } else {
+    state.nowPlaying = null;
+    saveState(state);
+  }
   setTimeout(() => { autoAdvanceLock = false; }, 800);
 }
 
@@ -1345,8 +1397,7 @@ function jamTogglePlayPause() {
   }
 
   // Update button immediately — don't wait for the render loop
-  const btn = document.getElementById('jamPlayPauseBtn');
-  if (btn) btn.textContent = np.isPaused ? '⏯ Resume' : '⏯ Pause';
+  updatePlayPauseButton(np.isPaused);
 
   saveState(state);
   if (!applyingRemoteSync) broadcastJamSync();
@@ -1380,6 +1431,29 @@ function jamNextTrack() {
   playTopSong();
   if (!applyingRemoteSync) broadcastJamSync();
   showToast('Skipped to next track for everyone ⏭');
+}
+
+function shuffleQueue() {
+  const state = getState();
+  if (state.queue.length < 2) {
+    showToast('Need at least 2 songs to shuffle');
+    return;
+  }
+
+  for (let i = state.queue.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [state.queue[i], state.queue[j]] = [state.queue[j], state.queue[i]];
+  }
+
+  saveState(state);
+  showToast('Queue shuffled');
+}
+
+function toggleRepeatTrack() {
+  repeatTrackEnabled = !repeatTrackEnabled;
+  saveRepeatState();
+  updateRepeatButtonUI();
+  showToast(repeatTrackEnabled ? 'Repeat on' : 'Repeat off');
 }
 
 function getSuggestions() {
@@ -1773,6 +1847,7 @@ function jamPayload() {
     ambientPrefs: getAmbientPrefs(),
     masterVolume,
     masterMuted,
+    repeatTrackEnabled,
     djState,
   };
 }
@@ -1805,6 +1880,10 @@ function applyJamPayload(payload) {
     }
     if (typeof payload.masterMuted === 'boolean') {
       masterMuted = payload.masterMuted;
+    }
+    if (typeof payload.repeatTrackEnabled === 'boolean') {
+      repeatTrackEnabled = payload.repeatTrackEnabled;
+      localStorage.setItem(REPEAT_TRACK_KEY, repeatTrackEnabled ? '1' : '0');
     }
     saveMasterAudioState();
     if (payload.djState) {
@@ -2014,6 +2093,7 @@ function esc2(s) { return String(s).replace(/'/g,"\\'").replace(/"/g,'\\"').repl
 // ============================================================
 (async function init() {
   loadMasterAudioState();
+  loadRepeatState();
   updateMasterVolumeUI();
   updatePlayerRangeTrack();
   bindMasterVolumeControls();

@@ -153,7 +153,6 @@
 
 <!-- ===== BOTTOM PLAYER BAR (Spotify-style) ===== -->
 <div class="player-bar" id="playerBar">
-  <!-- Left: track info -->
   <div class="player-left">
     <div class="player-art" id="playerArt">🎵</div>
     <div class="player-meta">
@@ -162,32 +161,48 @@
     </div>
   </div>
 
-  <!-- Center: Spotify embed (has native play/pause/seek/volume) -->
   <div class="player-center">
-    <div id="nowPlayingWrap" class="embed-wrap">
-      <div class="no-playing-bar">
-        <span>🎵 Add a song to the queue to start listening</span>
-      </div>
+    <div class="player-main-controls">
+      <button class="control-btn" id="shuffleBtn" onclick="shuffleQueue()" title="Shuffle queue" aria-label="Shuffle queue">
+        <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M13.151 11.28a.75.75 0 0 1 0 1.06l-1.72 1.72a.75.75 0 0 1-1.28-.53v-1.03h-.69a3.75 3.75 0 0 1-2.96-1.45l-.77-.98a2.25 2.25 0 0 0-1.77-.87H2.75a.75.75 0 0 1 0-1.5h1.21a3.75 3.75 0 0 1 2.96 1.45l.77.98a2.25 2.25 0 0 0 1.77.87h.69V9.97a.75.75 0 0 1 1.28-.53l1.72 1.72Zm-5.46-5.35a3.75 3.75 0 0 1 2.96-1.45h.69V3.47a.75.75 0 0 1 1.28-.53l1.72 1.72a.75.75 0 0 1 0 1.06l-1.72 1.72a.75.75 0 0 1-1.28-.53V5.97h-.69a2.25 2.25 0 0 0-1.77.87l-.15.19a.75.75 0 0 1-1.18-.93l.14-.17Zm-1.39 4.67a.75.75 0 0 1 0 1.06l-1.2 1.2a3.75 3.75 0 0 1-2.65 1.1h-.66a.75.75 0 0 1 0-1.5h.66a2.25 2.25 0 0 0 1.59-.66l1.2-1.2a.75.75 0 0 1 1.06 0Zm-1.2-5.45a2.25 2.25 0 0 0-1.59-.66h-.66a.75.75 0 0 1 0-1.5h.66a3.75 3.75 0 0 1 2.65 1.1l1.2 1.2a.75.75 0 1 1-1.06 1.06l-1.2-1.2Z"/></svg>
+      </button>
+      <button class="control-btn" onclick="jamRestartTrack()" title="Previous" aria-label="Previous">
+        <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M3.5 2.5A.75.75 0 0 1 4.25 3v10a.75.75 0 0 1-1.5 0V3a.75.75 0 0 1 .75-.5Zm9.23 1.7A.75.75 0 0 1 13 4.86v6.28a.75.75 0 0 1-1.18.61L7.17 8.61a.75.75 0 0 1 0-1.22l4.65-3.14a.75.75 0 0 1 .91-.05Z"/></svg>
+      </button>
+      <button class="control-btn control-btn-main" id="jamPlayPauseBtn" onclick="jamTogglePlayPause()" title="Play or pause" aria-label="Play or pause">
+        <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M4 3.5a.75.75 0 0 1 1.18-.61l7 4.5a.75.75 0 0 1 0 1.22l-7 4.5A.75.75 0 0 1 4 12.5v-9Z"/></svg>
+      </button>
+      <button class="control-btn" onclick="jamNextTrack()" title="Next" aria-label="Next">
+        <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M12.5 2.5A.75.75 0 0 1 13.25 3v10a.75.75 0 0 1-1.5 0V3a.75.75 0 0 1 .75-.5ZM3.27 4.2a.75.75 0 0 1 .91.05l4.65 3.14a.75.75 0 0 1 0 1.22l-4.65 3.14A.75.75 0 0 1 3 11.14V4.86a.75.75 0 0 1 .27-.66Z"/></svg>
+      </button>
+      <button class="control-btn" id="repeatBtn" onclick="toggleRepeatTrack()" title="Repeat current track" aria-label="Repeat current track">
+        <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M2 4.75A2.75 2.75 0 0 1 4.75 2h7.04l-.81-.81a.75.75 0 0 1 1.06-1.06l2.09 2.09a.75.75 0 0 1 0 1.06l-2.09 2.1a.75.75 0 0 1-1.06-1.07l.8-.8H4.75A1.25 1.25 0 0 0 3.5 4.75V6a.75.75 0 0 1-1.5 0V4.75Zm12 6.5A2.75 2.75 0 0 1 11.25 14H4.2l.81.8a.75.75 0 1 1-1.06 1.07l-2.1-2.1a.75.75 0 0 1 0-1.06l2.1-2.09a.75.75 0 0 1 1.06 1.06l-.8.82h7.04a1.25 1.25 0 0 0 1.25-1.25V10a.75.75 0 0 1 1.5 0v1.25Z"/></svg>
+      </button>
     </div>
+
+    <div class="player-progress-row">
+      <span class="player-time" id="playerTimeCurrent">0:00</span>
+      <div class="player-progress" id="playerProgress" onclick="scrubPlayer(event)" role="slider" aria-label="Track progress">
+        <div class="player-progress-fill" id="playerProgressFill"></div>
+      </div>
+      <span class="player-time" id="playerTimeTotal">0:00</span>
+    </div>
+
+    <div id="nowPlayingWrap" class="embed-wrap embed-wrap-hidden" aria-hidden="true"></div>
   </div>
 
-  <!-- Right: queue controls + ambient volume -->
   <div class="player-right">
-    <div class="player-queue-btns">
-      <button class="transport-btn" onclick="jamNextTrack()" title="Next in queue">⏭ Next</button>
-      <button class="play-top-btn-sm" id="playTopBtn" onclick="playTopSong()" disabled title="Play top voted song">▶ Top</button>
+    <div class="player-actions-right">
+      <button class="utility-btn" onclick="playTopSong()" id="playTopBtn" title="Play top voted song">Top</button>
+      <button class="utility-btn" onclick="openSearch()" title="Add song">Add</button>
     </div>
-    <div class="player-ambient-vol">
-      <span class="ambient-vol-label">🌿 Ambient</span>
-      <div class="ambient-vol-row">
-        <button class="vol-btn-sm" onclick="nudgeMasterVolume(-10)">−</button>
-        <input id="masterVolumeRange" type="range" min="0" max="100" value="28" title="Ambient volume">
-        <button class="vol-btn-sm" onclick="nudgeMasterVolume(10)">＋</button>
-      </div>
-      <div class="ambient-vol-row2">
-        <span id="masterVolumeValue">28%</span>
-        <button class="mute-btn-sm" id="masterMuteBtn" onclick="toggleAmbientMute()">🔇 Mute</button>
-      </div>
+
+    <div class="player-volume-wrap">
+      <button class="volume-btn" id="masterMuteBtn" onclick="toggleAmbientMute()" title="Mute" aria-label="Mute">
+        <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8.72 1.84a.75.75 0 0 1 .28.58v11.16a.75.75 0 0 1-1.28.53L4.6 10.98H2.75A1.75 1.75 0 0 1 1 9.23V6.77c0-.97.78-1.75 1.75-1.75H4.6l3.12-3.13a.75.75 0 0 1 1-.05Zm3.72 2.86a.75.75 0 0 1 1.06 0A4.75 4.75 0 0 1 14.9 8a4.75 4.75 0 0 1-1.4 3.3.75.75 0 1 1-1.06-1.06A3.25 3.25 0 0 0 13.4 8c0-.9-.37-1.72-.96-2.3a.75.75 0 0 1 0-1.06Zm-1.94 1.94a.75.75 0 0 1 1.06 0A2 2 0 0 1 12.12 8a2 2 0 0 1-.56 1.36.75.75 0 1 1-1.06-1.06.5.5 0 0 0 .16-.36.5.5 0 0 0-.16-.36.75.75 0 0 1 0-1.06Z"/></svg>
+      </button>
+      <input id="playerVolumeRange" type="range" min="0" max="100" value="28" title="Volume">
+      <span class="volume-value" id="masterVolumeValue">28%</span>
     </div>
   </div>
 </div>
