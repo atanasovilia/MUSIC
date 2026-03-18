@@ -118,6 +118,7 @@ const ambientEngine = {
 };
 
 let autoAdvanceLock = false;
+let autoPlayTimeoutId = null;
 let applyingRemoteSync = false;
 let jamPeer = null;
 let jamConnections = [];
@@ -303,11 +304,14 @@ function saveMasterAudioState() {
 
 function updateMasterVolumeUI() {
   const range = document.getElementById('masterVolumeRange');
+  const valEl  = document.getElementById('masterVolumeValue');
   const muteBtn = document.getElementById('masterMuteBtn');
-  if (range) range.value = String(Math.round(masterVolume * 100));
+  const pct = Math.round(masterVolume * 100);
+  if (range) range.value = String(pct);
+  if (valEl) valEl.textContent = pct + '%';
   if (muteBtn) {
     muteBtn.classList.toggle('active', masterMuted);
-    muteBtn.textContent = masterMuted ? 'Unmute' : 'Mute';
+    muteBtn.textContent = masterMuted ? '🔇 Unmute' : '🔇 Mute';
   }
 }
 
@@ -360,6 +364,18 @@ function onSpotifyPlaybackUpdate(event) {
   return;
 }
 
+function destroySpotifyController() {
+  if (spotifyController) {
+    try {
+      if (typeof spotifyController.destroy === 'function') spotifyController.destroy();
+    } catch {}
+    spotifyController = null;
+  }
+  // Also remove any lingering embed host element
+  const host = document.getElementById('spotifyEmbedHost');
+  if (host) host.remove();
+}
+
 function mountSpotifyTrackEmbed(trackId, startSeconds = 0) {
   const wrap = document.getElementById('nowPlayingWrap');
   if (!wrap) return false;
@@ -382,9 +398,21 @@ function mountSpotifyTrackEmbed(trackId, startSeconds = 0) {
   }, (controller) => {
     spotifyController = controller;
 
-    if (typeof controller.play === 'function') {
-      try { controller.play(); } catch {}
+    // Play on ready — the callback fires when the controller is initialized;
+    // we still need to wait for the embed to signal it's ready to play.
+    const tryPlay = () => {
+      if (typeof controller.play === 'function') {
+        try { controller.play(); } catch {}
+      }
+    };
+
+    // Some Spotify IFrame API versions expose addListener('ready', ...)
+    if (typeof controller.addListener === 'function') {
+      controller.addListener('ready', tryPlay);
     }
+    // Belt-and-suspenders: also fire after a short delay in case the event
+    // already fired before we registered or the API version differs.
+    setTimeout(tryPlay, 400);
   });
 
   return true;
